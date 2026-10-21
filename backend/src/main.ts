@@ -19,6 +19,11 @@ import { BazaarService } from './bazaar/bazaarService.js';
 import { FeedServer } from './server/server.js';
 import type { ItemData } from './nbt/decode.js';
 
+// Last line of defence: log and keep running. Every subsystem retries on its own, and the state
+// that matters (sales history, settings, purchases) is already on disk.
+process.on('unhandledRejection', (reason) => log.error('unhandled rejection (continuing):', reason instanceof Error ? reason.stack ?? reason.message : reason));
+process.on('uncaughtException', (err) => log.error('uncaught exception (continuing):', err.stack ?? err.message));
+
 async function main(): Promise<void> {
   const here = dirname(fileURLToPath(import.meta.url));
   const webDir = resolve(join(here, '..', 'web'));
@@ -45,6 +50,12 @@ async function main(): Promise<void> {
 
   // Coflnet public API fills reference-price gaps until our own history is deep enough.
   const coflnet = config.coflnet ? new CoflnetPrices({ requestsPerMinute: config.coflnetRpm }) : undefined;
+  // An EventEmitter 'error' with no listener throws; a dropped connection to Coflnet must never be fatal.
+  let coflnetErrors = 0;
+  coflnet?.on('error', (e: unknown) => {
+    coflnetErrors++;
+    if (coflnetErrors <= 3 || coflnetErrors % 50 === 0) log.warn(`coflnet request failed (${coflnetErrors} so far):`, (e as Error).message ?? e);
+  });
   coflnet?.start();
   const external: ExternalPriceLookup | undefined = coflnet && {
     lookup(item: ItemData, rarity: string) {
