@@ -19,13 +19,29 @@
   /** Minecraft § colour codes → spans. */
   const mc = (s) => { let out = '', open = 0; for (const part of String(s).split(/(§[0-9a-fk-or])/i)) { if (/^§/.test(part)) { out += `<span class="c${part[1].toLowerCase()}">`; open++; } else out += esc(part); } return out + '</span>'.repeat(open); };
 
-  function beep() {
-    if (!settings || !settings.sound) return;
+  // Soft two-note chime (a gentle fifth, sine, short decay). Volume from the slider, remembered per browser.
+  const volumeEl = $('#volume');
+  const webSoundEl = $('#webSound');
+  try { volumeEl.value = localStorage.getItem('skyflip.volume') ?? '30'; webSoundEl.checked = localStorage.getItem('skyflip.sound') !== '0'; } catch {}
+  volumeEl.addEventListener('input', () => { try { localStorage.setItem('skyflip.volume', volumeEl.value); } catch {} });
+  volumeEl.addEventListener('change', () => beep(true));
+  webSoundEl.addEventListener('change', () => { try { localStorage.setItem('skyflip.sound', webSoundEl.checked ? '1' : '0'); } catch {} });
+  function beep(force) {
+    if (!force && !webSoundEl.checked) return;
+    const vol = Number(volumeEl.value) / 100;
+    if (vol <= 0) return;
     try {
       audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
-      const o = audioCtx.createOscillator(); const g = audioCtx.createGain();
-      o.frequency.value = 880; g.gain.value = 0.08; o.connect(g); g.connect(audioCtx.destination);
-      o.start(); o.stop(audioCtx.currentTime + 0.12);
+      const t0 = audioCtx.currentTime;
+      [[523.25, 0], [783.99, 0.09]].forEach(([freq, dt]) => {
+        const o = audioCtx.createOscillator(); const g = audioCtx.createGain();
+        o.type = 'sine'; o.frequency.value = freq;
+        g.gain.setValueAtTime(0, t0 + dt);
+        g.gain.linearRampToValueAtTime(0.12 * vol, t0 + dt + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + dt + 0.45);
+        o.connect(g); g.connect(audioCtx.destination);
+        o.start(t0 + dt); o.stop(t0 + dt + 0.5);
+      });
     } catch {}
   }
 
@@ -46,13 +62,13 @@
       <td class="age">${ago(f.detectedAt)}</td>
       <td><span class="kind ${f.kind}">${f.kind}</span>${f.whitelisted ? ' <span class="pill">WL</span>' : ''}</td>
       <td class="item"><span class="r-${f.rarity} lore" data-uuid="${f.uuid}">${esc(f.itemName)}</span>${f.count > 1 ? ' ×' + f.count : ''}<div class="sub">${esc(f.summary || '')}${f.lowestBin ? ' · LBIN ' + fmt(f.lowestBin) : ''}${f.median ? ' · med ' + fmt(f.median) : ''} · tier ${f.keyTier}${src}</div></td>
-      <td>${fmt(f.price)}</td>
-      <td>${fmt(f.target)}</td>
-      <td class="profit">+${fmt(f.profit)}</td>
-      <td>${(f.profitPercent * 100).toFixed(0)}%</td>
-      <td>${f.salesPerDay || '–'}</td>
-      <td class="risk ${f.risk}">${f.risk}</td>
-      <td class="muted">${f.latencyMs}ms</td>
+      <td class="num">${fmt(f.price)}</td>
+      <td class="num">${fmt(f.target)}</td>
+      <td class="num profit">+${fmt(f.profit)}</td>
+      <td class="num">${(f.profitPercent * 100).toFixed(0)}%</td>
+      <td class="num">${f.salesPerDay || '–'}</td>
+      <td><span class="risk ${f.risk}">${f.risk}</span></td>
+      <td class="num muted">${(f.latencyMs / 1000).toFixed(1)}s</td>
       <td><button class="small copy" data-cmd="${f.command}">Copy /viewauction</button> <button class="small copy" data-cmd="${f.uuid}">UUID</button></td>`;
     return tr;
   }
@@ -91,14 +107,14 @@
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td class="item">${esc(b.name)}<div class="sub">${esc(b.productId)} · ${b.buyOrders} buy / ${b.sellOrders} sell orders</div></td>
-        <td>${fmt(b.buyOrderPrice)}</td>
-        <td>${fmt(b.sellOrderPrice)}</td>
-        <td class="profit">+${fmt(b.profitPerUnit)}</td>
-        <td>${(b.profitPercent * 100).toFixed(1)}%</td>
-        <td>${Math.round(b.unitsPerHour).toLocaleString()}</td>
-        <td class="profit">${fmt(b.profitPerHour)}</td>
-        <td class="muted">${fmt(b.buyMovingWeek)} · ${fmt(b.sellMovingWeek)}</td>
-        <td class="risk ${b.risk}">${b.risk}</td>
+        <td class="num">${fmt(b.buyOrderPrice)}</td>
+        <td class="num">${fmt(b.sellOrderPrice)}</td>
+        <td class="num profit">+${fmt(b.profitPerUnit)}</td>
+        <td class="num">${(b.profitPercent * 100).toFixed(1)}%</td>
+        <td class="num">${Math.round(b.unitsPerHour).toLocaleString()}</td>
+        <td class="num profit">${fmt(b.profitPerHour)}</td>
+        <td class="num muted">${fmt(b.buyMovingWeek)} · ${fmt(b.sellMovingWeek)}</td>
+        <td><span class="risk ${b.risk}">${b.risk}</span></td>
         <td><button class="small copy" data-cmd="${esc(b.command)}">Copy /bz</button></td>`;
       bazaarBody.appendChild(tr);
     }
@@ -119,8 +135,8 @@
     for (const p of s.recent) {
       const net = p.soldPrice ? p.soldPrice - Math.floor(p.soldPrice * (p.soldPrice >= 1e8 ? 0.03 : p.soldPrice >= 1e7 ? 0.02 : 0.01)) - (p.soldPrice > 1e6 ? Math.floor(p.soldPrice * 0.01) : 0) - p.price : null;
       const tr = document.createElement('tr');
-      tr.innerHTML = `<td>${ago(p.boughtAt)} ago</td><td>${esc(p.itemName)}</td><td>${fmt(p.price)}</td><td>${p.predictedProfit != null ? '+' + fmt(p.predictedProfit) : '<span class="muted">manual</span>'}</td>
-        <td>${p.soldPrice ? fmt(p.soldPrice) : '<span class="muted">unsold</span>'}</td><td class="${net == null ? 'muted' : net >= 0 ? 'profit' : 'loss'}">${net == null ? '–' : (net >= 0 ? '+' : '') + fmt(net)}</td>
+      tr.innerHTML = `<td>${ago(p.boughtAt)} ago</td><td>${esc(p.itemName)}</td><td class="num">${fmt(p.price)}</td><td class="num">${p.predictedProfit != null ? '+' + fmt(p.predictedProfit) : '<span class="muted">manual</span>'}</td>
+        <td class="num">${p.soldPrice ? fmt(p.soldPrice) : '<span class="muted">unsold</span>'}</td><td class="num ${net == null ? 'muted' : net >= 0 ? 'profit' : 'loss'}">${net == null ? '–' : (net >= 0 ? '+' : '') + fmt(net)}</td>
         <td class="muted">${p.soldAt ? ago(p.boughtAt - (Date.now() - p.soldAt)) : ago(p.boughtAt)}</td>`;
       tb.appendChild(tr);
     }
@@ -132,16 +148,17 @@
 
   // ---- status ----
   function renderStatus(s) {
-    statsEl.innerHTML = `
-      <span>API <b>${s.apiLastUpdated ? ago(s.apiLastUpdated) + ' ago' : '–'}</b></span>
-      <span>lag <b>${s.detectLagMs ? s.detectLagMs + 'ms' : '–'}</b></span>
-      <span>auctions <b>${s.totalAuctions.toLocaleString()}</b></span>
-      <span>new <b>${s.newAuctions}</b></span>
-      <span>flips <b>${s.flipsTotal}</b></span>
-      <span>sales <b>${s.salesTracked.toLocaleString()}</b></span>
-      <span>coflnet <b>${s.coflnet ? s.coflnet.cacheSize : 0}</b></span>
-      <span>bazaar <b>${s.bazaarFlips || 0}</b></span>
-      <span>clients <b>${s.clients || 0}</b></span>`;
+    const stat = (label, value, title) => `<span class="stat" title="${esc(title)}"><span class="k">${label}</span><b>${value}</b></span>`;
+    statsEl.innerHTML =
+      stat('API refresh', s.apiLastUpdated ? ago(s.apiLastUpdated) + ' ago' : '–', "Time since Hypixel's last auction-house refresh. Flips can only appear once a minute, right after this.") +
+      stat('Detect lag', s.detectLagMs ? s.detectLagMs + ' ms' : '–', "How long after Hypixel's refresh timestamp the server saw the new data. 4–5 s is Hypixel's CDN delay; everyone sees it then.") +
+      stat('Auctions', s.totalAuctions.toLocaleString(), 'Active auctions in the latest snapshot.') +
+      stat('New', s.newAuctions, 'Listings that appeared in the latest refresh.') +
+      stat('Flips', s.flipsTotal, 'Flips found since the server started.') +
+      stat('Sales history', s.salesTracked.toLocaleString(), 'Sold auctions recorded in our own price history (the basis for MEDIAN flips). Grows every minute.') +
+      stat('Coflnet prices', s.coflnet ? s.coflnet.cacheSize : 0, 'Item prices cached from the Coflnet API, used as a reference where our own history is still thin.') +
+      stat('Bazaar flips', s.bazaarFlips || 0, 'Bazaar products with a positive order spread, before your filters.') +
+      stat('Clients', s.clients || 0, 'Connected browser tabs and mods.');
   }
 
   // ---- settings ----
@@ -161,7 +178,6 @@
     form.SNIPE.checked = s.kinds.SNIPE;
     form.MEDIAN.checked = s.kinds.MEDIAN;
     form.whitelistOnly.checked = s.whitelistOnly;
-    form.sound.checked = s.sound;
     form.blacklist.value = rulesToText(s.blacklist);
     form.whitelist.value = rulesToText(s.whitelist);
     form.bzMinProfitPerHour.value = s.bazaar.minProfitPerHour;
@@ -178,7 +194,7 @@
     const patch = {
       minProfit: Number(form.minProfit.value), minProfitPercent: Number(form.minProfitPercent.value) / 100,
       maxPrice: Number(form.maxPrice.value), minSalesPerDay: Number(form.minSalesPerDay.value), maxKeyTier: Number(form.maxKeyTier.value),
-      maxRisk: form.maxRisk.value, kinds: { SNIPE: form.SNIPE.checked, MEDIAN: form.MEDIAN.checked }, whitelistOnly: form.whitelistOnly.checked, sound: form.sound.checked,
+      maxRisk: form.maxRisk.value, kinds: { SNIPE: form.SNIPE.checked, MEDIAN: form.MEDIAN.checked }, whitelistOnly: form.whitelistOnly.checked,
       blacklist, whitelist,
       bazaar: { minProfitPerHour: Number(form.bzMinProfitPerHour.value), minProfitPercent: Number(form.bzMinProfitPercent.value) / 100, maxPrice: Number(form.bzMaxPrice.value), minVolumeWeek: Number(form.bzMinVolumeWeek.value), maxRisk: form.bzMaxRisk.value },
     };

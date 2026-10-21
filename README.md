@@ -100,9 +100,13 @@ public API terms with attribution.
 
 `/skyflip` shows status, `/skyflip help` lists everything:
 
-- client: `toggle`, `sound`, `lore`, `shortnumbers`, `hypixelonly`, `notify`, `reconnect`,
+- client: `toggle`, `lore`, `shortnumbers`, `hypixelonly`, `notify`, `reconnect`,
   `url <ws://…>`, `token <t>`, `risk <LOW|MEDIUM|HIGH>`, `ping <coins>`,
   `show <lbin|median|volume|percent|seller|lag>`, `ah`
+- sound: `sound` (toggle), `sound <preset|vanilla id>` (presets: villager, chime, pling, orb, bell,
+  level, toast, click, cat, none; default is the villager's quiet hum), `sound volume <0-100>`,
+  `sound pitch <50-200>`, `sound risk <LOW|MEDIUM|HIGH>`, `sound test`, `sound list`;
+  `pingsound <preset|id>` plus `volume`, `pitch`, `test` for the big-flip ping
 - server settings: `minprofit <n>`, `minpercent <n>`, `purse <n>`, `minvolume <n>`,
   `mode <sniper|median|all>`, `tier <0-4>`, `set <key> <value>`
 - filters: `blacklist|whitelist add <item> [risk=HIGH] [minprofit=1m] [maxprice=50m]

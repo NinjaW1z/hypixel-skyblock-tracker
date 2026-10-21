@@ -8,13 +8,18 @@
 </head>
 <body>
 <header>
-  <div class="brand">SkyFlip <span id="conn" class="pill off">offline</span></div>
-  <nav id="tabs">
-    <button data-tab="flips" class="active">Flips</button>
-    <button data-tab="bazaar">Bazaar</button>
-    <button data-tab="profit">Profit</button>
-    <button data-tab="settings">Settings</button>
-  </nav>
+  <div class="bar">
+    <div class="brand"><span class="logo">⚡</span> SkyFlip <span id="conn" class="pill off">offline</span></div>
+    <nav id="tabs">
+      <button data-tab="flips" class="active">Flips</button>
+      <button data-tab="bazaar">Bazaar</button>
+      <button data-tab="profit">Profit</button>
+      <button data-tab="settings">Settings</button>
+    </nav>
+    <div class="right">
+      <label class="vol" title="Notification volume"><span>🔔</span><input type="range" id="volume" min="0" max="100" value="30"></label>
+    </div>
+  </div>
   <div class="stats" id="stats"></div>
 </header>
 
@@ -31,11 +36,12 @@
     <div class="toolbar">
       <label class="chk"><input type="checkbox" id="showLore" checked> Lore on hover</label>
       <label class="chk"><input type="checkbox" id="onlyLow"> Low risk only</label>
+      <label class="chk"><input type="checkbox" id="webSound" checked> Sound</label>
       <span class="muted" id="flipCount"></span>
     </div>
     <table id="flips">
       <thead><tr>
-        <th>Age</th><th>Kind</th><th>Item</th><th>Price</th><th>Target</th><th>Profit</th><th>%</th><th>Sales/d</th><th>Risk</th><th>Lag</th><th></th>
+        <th>Age</th><th>Kind</th><th>Item</th><th class="num">Price</th><th class="num">Target</th><th class="num">Profit</th><th class="num">%</th><th class="num" title="Comparable sales per day in our history">Sales/d</th><th>Risk</th><th class="num" title="Time from Hypixel's refresh stamp to this flip">Lag</th><th></th>
       </tr></thead>
       <tbody></tbody>
     </table>
@@ -49,7 +55,7 @@
     </div>
     <table id="bazaar">
       <thead><tr>
-        <th>Product</th><th>Buy order</th><th>Sell offer</th><th>Profit/unit</th><th>%</th><th>Units/h</th><th>Profit/h</th><th>Vol/week (buy · sell)</th><th>Risk</th><th></th>
+        <th>Product</th><th class="num" title="Place your buy order at this price">Buy order</th><th class="num" title="Then list your sell offer at this price">Sell offer</th><th class="num">Profit/unit</th><th class="num">%</th><th class="num" title="Units you can realistically move per hour, limited by the slower side of the market">Units/h</th><th class="num">Profit/h</th><th class="num" title="Weekly volume: bought by players · sold by players">Vol/week</th><th>Risk</th><th></th>
       </tr></thead>
       <tbody></tbody>
     </table>
@@ -65,7 +71,7 @@
     </form>
     <div id="profitSummary" class="cards"></div>
     <table id="purchases">
-      <thead><tr><th>Bought</th><th>Item</th><th>Paid</th><th>Predicted</th><th>Sold for</th><th>Realized</th><th>Held</th></tr></thead>
+      <thead><tr><th>Bought</th><th>Item</th><th class="num">Paid</th><th class="num">Predicted</th><th class="num">Sold for</th><th class="num">Realized</th><th>Held</th></tr></thead>
       <tbody></tbody>
     </table>
     <div id="events" class="events"></div>
@@ -84,7 +90,6 @@
         <label class="chk"><input name="SNIPE" type="checkbox"> Snipe flips (vs lowest BIN)</label>
         <label class="chk"><input name="MEDIAN" type="checkbox"> Median flips (vs sold history)</label>
         <label class="chk"><input name="whitelistOnly" type="checkbox"> Whitelist only</label>
-        <label class="chk"><input name="sound" type="checkbox"> Sound</label>
       </fieldset>
       <fieldset>
         <legend>Bazaar flips</legend>

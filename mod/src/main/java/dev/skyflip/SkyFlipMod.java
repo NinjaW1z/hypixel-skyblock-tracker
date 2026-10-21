@@ -17,7 +17,10 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.ServerInfo;
 import net.minecraft.client.option.KeyBinding;
 import net.minecraft.client.util.InputUtil;
+import net.minecraft.registry.Registries;
+import net.minecraft.sound.SoundEvent;
 import net.minecraft.sound.SoundEvents;
+import net.minecraft.util.Identifier;
 import net.minecraft.text.ClickEvent;
 import net.minecraft.text.HoverEvent;
 import net.minecraft.text.MutableText;
@@ -79,7 +82,38 @@ public final class SkyFlipMod implements ClientModInitializer {
 
         // client toggles
         root.then(lit("toggle", () -> { config.enabled = !config.enabled; config.save(); chat("flips " + onOff(config.enabled)); }));
-        root.then(lit("sound", () -> { config.sound = !config.sound; config.save(); chat("sound " + onOff(config.sound)); }));
+        root.then(ClientCommandManager.literal("sound")
+            .executes(ctx -> { config.sound = !config.sound; config.save(); chat("sound " + onOff(config.sound)); return 1; })
+            .then(ClientCommandManager.literal("list").executes(ctx -> { chat("§7presets: §f" + String.join(", ", SOUND_PRESETS.keySet()) + " §7or any vanilla id, e.g. §fentity.villager.ambient"); return 1; }))
+            .then(ClientCommandManager.literal("test").executes(ctx -> { playFlipSound(false); return 1; }))
+            .then(ClientCommandManager.literal("volume").then(ClientCommandManager.argument("percent", IntegerArgumentType.integer(0, 100))
+                .executes(ctx -> { config.soundVolume = IntegerArgumentType.getInteger(ctx, "percent") / 100f; config.save(); playFlipSound(false); chat("sound volume §e" + IntegerArgumentType.getInteger(ctx, "percent") + "%"); return 1; })))
+            .then(ClientCommandManager.literal("pitch").then(ClientCommandManager.argument("percent", IntegerArgumentType.integer(50, 200))
+                .executes(ctx -> { config.soundPitch = IntegerArgumentType.getInteger(ctx, "percent") / 100f; config.save(); playFlipSound(false); chat("sound pitch §e" + IntegerArgumentType.getInteger(ctx, "percent") + "%"); return 1; })))
+            .then(ClientCommandManager.literal("risk").then(ClientCommandManager.argument("level", StringArgumentType.word())
+                .executes(ctx -> {
+                    String lvl = StringArgumentType.getString(ctx, "level").toUpperCase(Locale.ROOT);
+                    if (!lvl.equals("LOW") && !lvl.equals("MEDIUM") && !lvl.equals("HIGH")) { chat("§crisk must be LOW, MEDIUM or HIGH"); return 0; }
+                    config.soundMaxRisk = lvl; config.save(); chat("sound only for flips up to risk §e" + lvl); return 1;
+                })))
+            .then(ClientCommandManager.argument("name", StringArgumentType.word())
+                .executes(ctx -> {
+                    String name = StringArgumentType.getString(ctx, "name");
+                    if (resolveSound(name) == null) { chat("§cunknown sound \"" + name + "\". /skyflip sound list"); return 0; }
+                    config.soundName = name; config.save(); playFlipSound(false); chat("flip sound set to §e" + name); return 1;
+                })));
+        root.then(ClientCommandManager.literal("pingsound")
+            .then(ClientCommandManager.literal("test").executes(ctx -> { playFlipSound(true); return 1; }))
+            .then(ClientCommandManager.literal("volume").then(ClientCommandManager.argument("percent", IntegerArgumentType.integer(0, 100))
+                .executes(ctx -> { config.pingVolume = IntegerArgumentType.getInteger(ctx, "percent") / 100f; config.save(); playFlipSound(true); return 1; })))
+            .then(ClientCommandManager.literal("pitch").then(ClientCommandManager.argument("percent", IntegerArgumentType.integer(50, 200))
+                .executes(ctx -> { config.pingPitch = IntegerArgumentType.getInteger(ctx, "percent") / 100f; config.save(); playFlipSound(true); return 1; })))
+            .then(ClientCommandManager.argument("name", StringArgumentType.word())
+                .executes(ctx -> {
+                    String name = StringArgumentType.getString(ctx, "name");
+                    if (resolveSound(name) == null) { chat("§cunknown sound \"" + name + "\". /skyflip sound list"); return 0; }
+                    config.pingSoundName = name; config.save(); playFlipSound(true); chat("ping sound set to §e" + name); return 1;
+                })));
         root.then(lit("lore", () -> { config.showLore = !config.showLore; config.save(); chat("lore on hover " + onOff(config.showLore)); }));
         root.then(lit("shortnumbers", () -> { config.shortNumbers = !config.shortNumbers; config.save(); chat("short numbers " + onOff(config.shortNumbers)); }));
         root.then(lit("hypixelonly", () -> { config.hypixelOnly = !config.hypixelOnly; config.save(); chat("hypixel-only " + onOff(config.hypixelOnly)); }));
@@ -232,9 +266,8 @@ public final class SkyFlipMod implements ClientModInitializer {
             MinecraftClient client = MinecraftClient.getInstance();
             if (client.player == null) return;
             client.player.sendMessage(render(f), false);
-            if (config.sound) {
-                boolean big = config.pingAbove > 0 && f.profit >= config.pingAbove;
-                client.player.playSound(big ? SoundEvents.BLOCK_NOTE_BLOCK_PLING.value() : SoundEvents.ENTITY_EXPERIENCE_ORB_PICKUP, big ? 1.0f : 0.7f, big ? 1.2f : 1.6f);
+            if (config.sound && riskRank(f.risk) <= riskRank(config.soundMaxRisk)) {
+                playFlipSound(config.pingAbove > 0 && f.profit >= config.pingAbove);
             }
         });
     }
@@ -359,16 +392,54 @@ public final class SkyFlipMod implements ClientModInitializer {
 
     private int status() {
         chat((feed.connected ? "§aconnected" : "§cdisconnected") + " §7to §e" + config.url + (config.token.isEmpty() ? " §8(no token)" : ""));
-        chat("§7flips " + onOff(config.enabled) + " §7· sound " + onOff(config.sound) + " §7· risk ≤ §e" + config.maxRisk + " §7· hypixel-only " + onOff(config.hypixelOnly) + " §7· lore " + onOff(config.showLore));
+        chat("§7flips " + onOff(config.enabled) + " §7· sound " + onOff(config.sound) + " §8(" + config.soundName + " " + Math.round(config.soundVolume * 100) + "%)" + " §7· risk ≤ §e" + config.maxRisk + " §7· hypixel-only " + onOff(config.hypixelOnly) + " §7· lore " + onOff(config.showLore));
         chat("§7keys: §f" + openLatest.getBoundKeyLocalizedText().getString() + " §7open latest · §f" + openBest.getBoundKeyLocalizedText().getString() + " §7open best · §f/skyflip help §7for commands");
         return 1;
     }
 
     private void help() {
-        chat("§7client: §ftoggle · sound · lore · shortnumbers · hypixelonly · notify · reconnect · url <ws://…> · token <t> · risk <LOW|MEDIUM|HIGH> · ping <coins> · show <lbin|median|volume|percent|seller|lag> · ah");
+        chat("§7client: §ftoggle · lore · shortnumbers · hypixelonly · notify · reconnect · url <ws://…> · token <t> · risk <LOW|MEDIUM|HIGH> · ping <coins> · show <lbin|median|volume|percent|seller|lag> · ah");
+        chat("§7sound: §fsound (toggle) · sound <preset|id> · sound list · sound test · sound volume <0-100> · sound pitch <50-200> · sound risk <LOW|MEDIUM|HIGH> · pingsound <preset|id> · pingsound volume/pitch/test");
         chat("§7server: §fminprofit <n> · minpercent <n> · purse <n> · minvolume <n> · mode <sniper|median|all> · tier <0-4> · set <key> <value>");
         chat("§7filters: §fblacklist|whitelist add <item> [risk=HIGH] [minprofit=1m] [maxprice=50m] [minpercent=10] [kind=SNIPE] [rarity=X] [volume=2] · remove <item> · list");
         chat("§7data: §fbazaar [n] · profit [days]");
+    }
+
+    // ------------------------------------------------------------------ sounds
+
+    private static final java.util.Map<String, String> SOUND_PRESETS = new java.util.LinkedHashMap<>();
+    static {
+        SOUND_PRESETS.put("villager", "entity.villager.ambient");   // quiet "hmm"
+        SOUND_PRESETS.put("chime", "block.amethyst_block.chime");
+        SOUND_PRESETS.put("pling", "block.note_block.pling");
+        SOUND_PRESETS.put("orb", "entity.experience_orb.pickup");
+        SOUND_PRESETS.put("bell", "block.note_block.bell");
+        SOUND_PRESETS.put("level", "entity.player.levelup");
+        SOUND_PRESETS.put("toast", "ui.toast.in");
+        SOUND_PRESETS.put("click", "ui.button.click");
+        SOUND_PRESETS.put("cat", "entity.cat.purr");
+        SOUND_PRESETS.put("none", "");
+    }
+
+    /** Preset name or vanilla sound id → SoundEvent; null when unknown. "none" resolves to a silent marker. */
+    private static SoundEvent resolveSound(String name) {
+        String id = SOUND_PRESETS.getOrDefault(name.toLowerCase(Locale.ROOT), name);
+        if (id.isEmpty()) return SoundEvents.INTENTIONALLY_EMPTY;
+        Identifier ident = Identifier.tryParse(id.contains(":") ? id : "minecraft:" + id);
+        return ident == null ? null : Registries.SOUND_EVENT.get(ident);
+    }
+
+    private void playFlipSound(boolean ping) {
+        MinecraftClient client = MinecraftClient.getInstance();
+        if (client.player == null) return;
+        SoundEvent ev = resolveSound(ping ? config.pingSoundName : config.soundName);
+        if (ev == null || ev == SoundEvents.INTENTIONALLY_EMPTY) return;
+        client.player.playSound(ev, ping ? config.pingVolume : config.soundVolume, ping ? config.pingPitch : config.soundPitch);
+    }
+
+    private static int riskRank(String r) {
+        if (r == null) return 2;
+        return switch (r) { case "LOW" -> 0; case "MEDIUM" -> 1; default -> 2; };
     }
 
     // ------------------------------------------------------------------ helpers

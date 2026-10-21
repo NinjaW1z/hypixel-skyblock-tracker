@@ -19,8 +19,20 @@ public final class FlipConfig {
     public String token = "";
     /** Show flips in chat. */
     public boolean enabled = true;
-    /** Ping on each flip. */
+    /** Play a sound on each flip. */
     public boolean sound = true;
+    /** Sound for a normal flip: a preset name (villager, chime, pling, orb, bell, level, toast, click) or any vanilla id like entity.villager.ambient. */
+    public String soundName = "villager";
+    /** 0.0 - 1.0 */
+    public float soundVolume = 0.35f;
+    /** 0.5 - 2.0 */
+    public float soundPitch = 1.0f;
+    /** Sound for flips over pingAbove. */
+    public String pingSoundName = "chime";
+    public float pingVolume = 0.6f;
+    public float pingPitch = 1.0f;
+    /** Only play sounds for flips at this risk or safer: HIGH = all, MEDIUM = LOW+MEDIUM, LOW = LOW only. */
+    public String soundMaxRisk = "HIGH";
     /** Only show flips while connected to Hypixel (the command only works there anyway). */
     public boolean hypixelOnly = true;
     /** Hide flips with this risk or worse on the client side: HIGH hides nothing, MEDIUM hides HIGH, LOW hides MEDIUM+HIGH. */
