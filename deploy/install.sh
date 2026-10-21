@@ -199,14 +199,25 @@ open_firewall() {
     return
   fi
   if command -v iptables >/dev/null 2>&1; then
-    # Oracle's Ubuntu images carry an iptables ruleset that REJECTs anything not listed before the
-    # final REJECT rule. Insert our ACCEPT ahead of it (position 6 is after the stock rules); skip if present.
+    # Oracle's images carry an iptables ruleset that REJECTs anything not listed before the final
+    # REJECT/DROP rule. Insert our ACCEPT ahead of that rule, wherever it is; skip if already present.
     if iptables -C INPUT -p tcp -m state --state NEW -m tcp --dport "$PORT" -j ACCEPT 2>/dev/null; then
       log "iptables: tcp/$PORT already allowed"
     else
       log "iptables: opening tcp/$PORT"
-      run iptables -I INPUT 6 -p tcp -m state --state NEW -m tcp --dport "$PORT" -j ACCEPT \
-        || run iptables -I INPUT 1 -p tcp -m state --state NEW -m tcp --dport "$PORT" -j ACCEPT
+      local pos
+      pos="$(iptables -L INPUT -n --line-numbers 2>/dev/null | awk '$2 == "REJECT" || $2 == "DROP" { print $1; exit }')"
+      [ -n "$pos" ] || pos=1
+      run iptables -I INPUT "$pos" -p tcp -m state --state NEW -m tcp --dport "$PORT" -j ACCEPT
+    fi
+    # If a rule exists but sits below the REJECT it is useless; move it to the top.
+    local reject accept
+    reject="$(iptables -L INPUT -n --line-numbers 2>/dev/null | awk '$2 == "REJECT" || $2 == "DROP" { print $1; exit }')"
+    accept="$(iptables -L INPUT -n --line-numbers 2>/dev/null | awk -v p="dpt:$PORT" '$0 ~ p && $2 == "ACCEPT" { print $1; exit }')"
+    if [ -n "$reject" ] && [ -n "$accept" ] && [ "$accept" -gt "$reject" ]; then
+      log "iptables: tcp/$PORT rule was below the REJECT rule; moving it up"
+      run iptables -D INPUT "$accept"
+      run iptables -I INPUT 1 -p tcp -m state --state NEW -m tcp --dport "$PORT" -j ACCEPT
     fi
     if command -v netfilter-persistent >/dev/null 2>&1; then run netfilter-persistent save >/dev/null 2>&1 || true
     elif [ -d /etc/iptables ]; then run bash -c "iptables-save > /etc/iptables/rules.v4"
