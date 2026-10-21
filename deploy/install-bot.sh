@@ -105,7 +105,7 @@ cat <<SUM
  1. Put the bot account's Microsoft e-mail into $BOT_ENV (MC_ACCOUNT=…).
     Keep BOT_MODE=dry for the first session.
  2. First login must be interactive (Microsoft device code):
-      sudo -u $BOT_USER env \$(grep -v '^#' $BOT_ENV | xargs) \\
+      sudo -u $BOT_USER env \$(sudo grep -v '^#' $BOT_ENV | xargs) \\
         node $INSTALL_DIR/bot/dist/main.js
     Open the link it prints, enter the code, wait for "logged in as …", then Ctrl+C.
  3. Switches (both OFF now):
