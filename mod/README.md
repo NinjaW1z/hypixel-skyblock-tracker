@@ -4,7 +4,8 @@ Client-side mod that connects to the SkyFlip backend's WebSocket feed and shows 
 
 - Each flip is a clickable chat line. Clicking runs `/viewauction <id>`, which opens Hypixel's
   own auction GUI. You confirm the purchase there by hand.
-- `V` opens the newest flip, `B` opens the most profitable flip from the last 20 seconds.
+- `V` opens the newest flip, `B` opens the most profitable flip from the last 20 seconds,
+  `Right Shift` opens the settings GUI (also `/skyflip gui`).
   Rebind both under Options → Controls → SkyFlip.
 - `/skyflip` shows status, `/skyflip help` lists every command: client display toggles, server
   settings (`minprofit`, `purse`, `mode`, …), blacklist/whitelist rules, `bazaar` and `profit`.

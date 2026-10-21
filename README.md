@@ -114,7 +114,10 @@ public API terms with attribution.
   (aliases `bl`, `wl`; every flip line has a `[bl]` button that pre-fills the command)
 - data: `bazaar [n]`, `profit [days]`
 
-Keybinds: `V` opens the newest flip, `B` the most profitable one from the last 20 seconds.
+Keybinds: `V` opens the newest flip, `B` the most profitable one from the last 20 seconds,
+`Right Shift` (or `/skyflip gui`) opens the settings screen: General, Display, Sound, Server
+(url, token, thresholds, mode, risk) and Filters (view, add and remove rules) tabs, plus
+Bazaar and Profit buttons. Client options save instantly; server options apply on Apply/Add.
 
 ## Run offline against the mock API
 

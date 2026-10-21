@@ -48,6 +48,13 @@ public final class SkyFlipMod implements ClientModInitializer {
     private final Deque<Flip> recent = new ArrayDeque<>();
     private KeyBinding openLatest;
     private KeyBinding openBest;
+    private KeyBinding openGui;
+    /** Latest server-side settings (thresholds, filters) as sent by the backend. */
+    private volatile JsonObject serverSettings;
+
+    FlipConfig config() { return config; }
+    FeedClient feed() { return feed; }
+    JsonObject serverSettings() { return serverSettings; }
 
     @Override
     public void onInitializeClient() {
@@ -57,6 +64,8 @@ public final class SkyFlipMod implements ClientModInitializer {
             "key.skyflip.open_latest", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_V, "category.skyflip"));
         openBest = KeyBindingHelper.registerKeyBinding(new KeyBinding(
             "key.skyflip.open_best", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_B, "category.skyflip"));
+        openGui = KeyBindingHelper.registerKeyBinding(new KeyBinding(
+            "key.skyflip.gui", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_RIGHT_SHIFT, "category.skyflip"));
 
         feed = new FeedClient(config.url, config.token, this::onFlip, this::onServerMessage, this::onStatus);
         feed.start();
@@ -69,6 +78,7 @@ public final class SkyFlipMod implements ClientModInitializer {
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             while (openLatest.wasPressed()) openFlip(newestFresh());
             while (openBest.wasPressed()) openFlip(bestFresh());
+            while (openGui.wasPressed()) openGui();
         });
 
         ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) -> dispatcher.register(buildCommand()));
@@ -121,6 +131,8 @@ public final class SkyFlipMod implements ClientModInitializer {
         root.then(lit("reconnect", () -> feed.reconnect()));
         root.then(lit("ah", () -> sendCommand("ah")));
         root.then(lit("help", this::help));
+        root.then(lit("gui", () -> MinecraftClient.getInstance().send(this::openGui)));
+        root.then(lit("settings", () -> MinecraftClient.getInstance().send(this::openGui)));
 
         root.then(ClientCommandManager.literal("url").then(ClientCommandManager.argument("url", StringArgumentType.greedyString())
             .executes(ctx -> { config.url = StringArgumentType.getString(ctx, "url").trim(); config.save(); feed.setUrl(config.url); chat("feed url set to §e" + config.url); return 1; })));
@@ -193,7 +205,7 @@ public final class SkyFlipMod implements ClientModInitializer {
         return node;
     }
 
-    private static JsonObject parseRule(String spec) {
+    static JsonObject parseRule(String spec) {
         String[] parts = spec.trim().split("\\s+");
         if (parts.length == 0 || parts[0].isEmpty()) return null;
         JsonObject r = new JsonObject();
@@ -222,17 +234,17 @@ public final class SkyFlipMod implements ClientModInitializer {
         return ClientCommandManager.literal(name).executes(ctx -> { action.run(); return 1; });
     }
 
-    private void serverSet(String key, String value) {
+    void serverSet(String key, String value) {
         JsonObject m = new JsonObject();
         m.addProperty("type", "set"); m.addProperty("key", key); m.addProperty("value", value);
         feed.send(m);
     }
 
-    private void requestBazaar(int n) {
+    void requestBazaar(int n) {
         JsonObject m = new JsonObject(); m.addProperty("type", "bazaar"); m.addProperty("limit", n); feed.send(m);
     }
 
-    private void requestProfit(int days) {
+    void requestProfit(int days) {
         JsonObject m = new JsonObject(); m.addProperty("type", "profit"); m.addProperty("days", days);
         if (feed.playerUuid != null) m.addProperty("uuid", feed.playerUuid);
         feed.send(m);
@@ -275,8 +287,15 @@ public final class SkyFlipMod implements ClientModInitializer {
     private void onServerMessage(JsonObject m) {
         MinecraftClient.getInstance().execute(() -> {
             String type = m.has("type") ? m.get("type").getAsString() : "";
+            if ((type.equals("hello") || type.equals("settings")) && m.has("settings")) {
+                serverSettings = m.getAsJsonObject("settings");
+                if (MinecraftClient.getInstance().currentScreen instanceof SkyFlipScreen sc) sc.onServerSettings();
+            }
             switch (type) {
-                case "msg" -> chat((m.has("level") && m.get("level").getAsString().equals("error") ? "§c" : "§7") + m.get("text").getAsString());
+                case "msg" -> {
+                    String text = (m.has("level") && m.get("level").getAsString().equals("error") ? "§c" : "§7") + m.get("text").getAsString();
+                    if (MinecraftClient.getInstance().currentScreen instanceof SkyFlipScreen sc) sc.setStatus(text); else chat(text);
+                }
                 case "identified" -> chat("§7tracking profit for §f" + (m.has("name") && !m.get("name").isJsonNull() ? m.get("name").getAsString() : "you"));
                 case "rules" -> {
                     JsonArray rules = m.getAsJsonArray("rules");
@@ -390,10 +409,14 @@ public final class SkyFlipMod implements ClientModInitializer {
         }
     }
 
+    private void openGui() {
+        MinecraftClient.getInstance().setScreen(new SkyFlipScreen(this));
+    }
+
     private int status() {
         chat((feed.connected ? "§aconnected" : "§cdisconnected") + " §7to §e" + config.url + (config.token.isEmpty() ? " §8(no token)" : ""));
         chat("§7flips " + onOff(config.enabled) + " §7· sound " + onOff(config.sound) + " §8(" + config.soundName + " " + Math.round(config.soundVolume * 100) + "%)" + " §7· risk ≤ §e" + config.maxRisk + " §7· hypixel-only " + onOff(config.hypixelOnly) + " §7· lore " + onOff(config.showLore));
-        chat("§7keys: §f" + openLatest.getBoundKeyLocalizedText().getString() + " §7open latest · §f" + openBest.getBoundKeyLocalizedText().getString() + " §7open best · §f/skyflip help §7for commands");
+        chat("§7keys: §f" + openLatest.getBoundKeyLocalizedText().getString() + " §7open latest · §f" + openBest.getBoundKeyLocalizedText().getString() + " §7open best · §f" + openGui.getBoundKeyLocalizedText().getString() + " §7settings GUI · §f/skyflip help §7for commands");
         return 1;
     }
 
@@ -407,7 +430,7 @@ public final class SkyFlipMod implements ClientModInitializer {
 
     // ------------------------------------------------------------------ sounds
 
-    private static final java.util.Map<String, String> SOUND_PRESETS = new java.util.LinkedHashMap<>();
+    static final java.util.Map<String, String> SOUND_PRESETS = new java.util.LinkedHashMap<>();
     static {
         SOUND_PRESETS.put("villager", "entity.villager.ambient");   // quiet "hmm"
         SOUND_PRESETS.put("chime", "block.amethyst_block.chime");
@@ -429,7 +452,7 @@ public final class SkyFlipMod implements ClientModInitializer {
         return ident == null ? null : Registries.SOUND_EVENT.get(ident);
     }
 
-    private void playFlipSound(boolean ping) {
+    void playFlipSound(boolean ping) {
         MinecraftClient client = MinecraftClient.getInstance();
         if (client.player == null) return;
         SoundEvent ev = resolveSound(ping ? config.pingSoundName : config.soundName);
