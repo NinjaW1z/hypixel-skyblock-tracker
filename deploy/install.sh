@@ -47,10 +47,24 @@ node_arch() {
 }
 
 # ---- packages -----------------------------------------------------------------
+# Fresh cloud images run unattended-upgrades on first boot and hold the dpkg lock for minutes.
+wait_for_apt() {
+  local waited=0
+  while fuser /var/lib/dpkg/lock-frontend /var/lib/apt/lists/lock >/dev/null 2>&1 \
+     || pgrep -x apt-get >/dev/null || pgrep -x apt >/dev/null || pgrep -f unattended-upgrade >/dev/null; do
+    if [ "$waited" -eq 0 ]; then log "waiting for the system's automatic updates to release the package lock"; fi
+    sleep 5; waited=$((waited + 5))
+    if [ "$waited" -ge 900 ]; then log "still locked after 15 minutes; giving up"; exit 1; fi
+  done
+  [ "$waited" -gt 0 ] && log "package lock released after ${waited}s"
+  return 0
+}
+
 install_base() {
   log "installing git, curl, openssl"
   case "$PKG" in
-    apt) run env DEBIAN_FRONTEND=noninteractive apt-get update -qq
+    apt) wait_for_apt
+         run env DEBIAN_FRONTEND=noninteractive apt-get update -qq
          run env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git curl ca-certificates openssl gnupg ;;
     dnf|yum) run "$PKG" install -y -q git curl ca-certificates openssl ;;
   esac
