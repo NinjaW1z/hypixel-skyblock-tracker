@@ -1,0 +1,8 @@
+node_modules/
+dist/
+*.db
+*.db-*
+.gradle/
+build/
+run/
+.env

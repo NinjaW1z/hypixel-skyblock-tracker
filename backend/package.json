@@ -1,0 +1,25 @@
+{
+  "name": "skyflip-backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Hypixel SkyBlock auction tracker and flip finder (sniper + median) with WebSocket feed",
+  "engines": { "node": ">=22.13" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node --enable-source-maps dist/main.js",
+    "dev": "tsc -p tsconfig.json && node --enable-source-maps dist/main.js",
+    "mock": "node --enable-source-maps dist/scripts/mock-hypixel.js",
+    "test": "tsc -p tsconfig.json && node --test dist/test/"
+  },
+  "dependencies": {
+    "prismarine-nbt": "^2.7.0",
+    "undici": "^7.10.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "@types/ws": "^8.18.0",
+    "typescript": "^5.8.0"
+  }
+}
