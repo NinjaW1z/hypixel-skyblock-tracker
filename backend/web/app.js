@@ -203,6 +203,37 @@
     $('#saveMsg').textContent = 'Saved'; setTimeout(() => ($('#saveMsg').textContent = ''), 1500);
   });
 
+  // ---- packs & import ----
+  function renderPacks(packs) {
+    const el = $('#packs');
+    el.innerHTML = packs.length ? packs.map((p) => `<button type="button" class="pack" data-id="${esc(p.id)}" title="${esc(p.description)}">Load ${esc(p.name)} (${p.rules} rules)</button>`).join(' ') : '<span class="muted">no packs found</span>';
+  }
+  $('#packs').addEventListener('click', (e) => {
+    const b = e.target.closest('button.pack'); if (!b) return;
+    const mode = $('#importMode').value;
+    if (mode === 'replace' && !confirm('Replace all current blacklist and whitelist rules with this pack?')) return;
+    send({ type: 'pack', pack: b.dataset.id, mode });
+    $('#importMsg').textContent = 'loading pack…';
+  });
+  $('#importBtn').addEventListener('click', () => {
+    let data;
+    try { data = JSON.parse($('#importText').value); } catch (err) { $('#importMsg').textContent = 'not valid JSON: ' + err.message; return; }
+    const mode = $('#importMode').value;
+    if (mode === 'replace' && !confirm('Replace all current blacklist and whitelist rules with the imported ones?')) return;
+    send({ type: 'import', mode, data });
+    $('#importMsg').textContent = 'importing…';
+  });
+  function renderImport(r) {
+    $('#importMsg').textContent = `${r.imported} rules imported (${r.blacklist.length} blacklist, ${r.whitelist.length} whitelist, ${r.whitelist.filter((x) => x.finder).length} finders), ${r.skipped.length} skipped`;
+    const uns = Object.entries(r.unsupported || {}).map(([k, v]) => `${k} (${v})`).join(', ');
+    $('#importReport').innerHTML = [
+      Object.keys(r.settingsPatch).length ? `Thresholds applied: ${esc(JSON.stringify(r.settingsPatch))}` : '',
+      uns ? `Filters without an equivalent here, dropped from their entries: ${esc(uns)}` : '',
+      r.skipped.length ? `Skipped: ${r.skipped.slice(0, 15).map((s) => esc(s.entry) + ' — ' + esc(s.reason)).join('; ')}${r.skipped.length > 15 ? ' …' : ''}` : '',
+      ...r.notes.map(esc),
+    ].filter(Boolean).map((x) => `<div>${x}</div>`).join('');
+  }
+
   // ---- token ----
   $('#tokenForm').addEventListener('submit', (e) => {
     e.preventDefault();
@@ -232,7 +263,7 @@
       const m = JSON.parse(ev.data);
       if (m.type === 'hello') {
         ws.gotHello = true; settings = m.settings; fillForm(settings); renderStatus(m.status);
-        flipsBody.innerHTML = ''; flips.length = 0; m.flips.forEach((f) => addFlip(f, false)); renderBazaar(m.bazaar || []);
+        flipsBody.innerHTML = ''; flips.length = 0; m.flips.forEach((f) => addFlip(f, false)); renderBazaar(m.bazaar || []); renderPacks(m.packs || []);
         fetch('/api/players' + (token ? `?token=${encodeURIComponent(token)}` : '')).then((r) => r.json()).then((ps) => { $('#players').innerHTML = ps.map((p) => `<option value="${p}">`).join(''); }).catch(() => {});
       }
       else if (m.type === 'flip') addFlip(m.flip, true);
@@ -242,7 +273,8 @@
       else if (m.type === 'profit') renderProfit(m.summary);
       else if (m.type === 'purchase') { logEvent(`bought ${m.purchase.itemName} for ${fmt(m.purchase.price)}${m.flip ? ` (predicted +${fmt(m.flip.profit)})` : ''}`); }
       else if (m.type === 'sold') { logEvent(`sold ${m.purchase.itemName} for ${fmt(m.purchase.soldPrice)} (paid ${fmt(m.purchase.price)})`); }
-      else if (m.type === 'msg') logEvent(m.text);
+      else if (m.type === 'import') renderImport(m.report);
+      else if (m.type === 'msg') { logEvent(m.text); if (/pack/.test(m.text)) $('#importMsg').textContent = m.text; }
     };
   }
   setInterval(() => { for (const tr of flipsBody.children) tr.querySelector('.age').textContent = ago(Number(tr.dataset.ts)); }, 5000);

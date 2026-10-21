@@ -5,7 +5,7 @@ import { buildKeys } from '../pricing/key.js';
 import { netAfterFees } from '../pricing/tax.js';
 import type { SalesBook, LowestBinBook, Estimate } from '../pricing/priceBook.js';
 import type { AuctionEntry } from '../ingest/auctionPoller.js';
-import { ruleItemId, ruleMatches, riskRank, type Settings, type Risk, type FlipKind, type RuleSubject } from './settings.js';
+import { ruleItemId, ruleMatches, itemConditionsMatch, riskRank, type Settings, type Risk, type FlipKind, type RuleSubject } from './settings.js';
 
 export type { FlipKind, Risk };
 
@@ -66,6 +66,17 @@ export interface DetectorContext {
   lowestBin: LowestBinBook;
   settings: Settings;
   external?: ExternalPriceLookup;
+  /** Item id → Hypixel category, for rules with a `category` condition. */
+  categoryOf?: (itemId: string) => string | undefined;
+}
+
+function subjectFor(item: ItemData, ruleId: string, rarity: string, price: number, categoryOf?: (id: string) => string | undefined): RuleSubject {
+  return {
+    item: ruleId, rarity, kind: 'SNIPE', price, profit: 0, profitPercent: 0, salesPerDay: 0, risk: 'HIGH',
+    name: item.name, category: categoryOf?.(item.id), reforge: item.reforge, shiny: item.shiny, dye: item.dye, petSkin: item.pet?.skin,
+    skin: item.skin, color: item.color, candy: item.pet?.candyUsed ?? 0, abilityScrolls: item.abilityScrolls, stars: item.stars,
+    petLevel: item.pet?.level, petItem: item.pet?.heldItem,
+  };
 }
 
 /** Build the one-line modifier summary shown in the UI and the mod. */
@@ -115,10 +126,13 @@ export function evaluateAuction(entry: AuctionEntry, ctx: DetectorContext, apiLa
   const rarity = item.rarity ?? a.tier;
   const ruleId = ruleItemId(item.id, item.pet?.type, keys[keys.length - 1]);
 
-  // Cheap pre-filter: an item-only blacklist rule with no other conditions can drop before pricing.
+  const subject = subjectFor(item, ruleId, rarity, price, ctx.categoryOf);
+  // Cheap pre-filter: a blacklist rule with only item conditions can drop before pricing.
   for (const r of s.blacklist) {
-    if (r.item && Object.keys(r).every((k) => k === 'item' || k === 'note') && ruleMatchesItemOnly(r.item, ruleId)) return null;
+    if (!hasPricingConditions(r) && itemConditionsMatch(r, subject)) return null;
   }
+  // Finder rules ("any X under Y coins is a buy") decide on item conditions alone.
+  const finder = s.whitelist.find((r) => r.finder && itemConditionsMatch(r, subject));
 
   // ---- reference prices (per unit) ----
   let est: Estimate | undefined = ctx.sales.estimate(keys, now);
@@ -147,19 +161,26 @@ export function evaluateAuction(entry: AuctionEntry, ctx: DetectorContext, apiLa
     const target = lbin ? Math.min(est.price, lbin.price) : est.price;
     if (!best || target > best.target) best = { kind: 'MEDIAN', target, tier: est.tier, key: est.key };
   }
+  if (!best && finder) {
+    // No price reference: value the item at the finder's cap (or the listing itself when the cap is absent).
+    const cap = finder.maxPrice ?? price;
+    best = { kind: 'USER', target: cap / item.count, tier: 4, key: `USER:${finder.item ?? '*'}` };
+  } else if (finder && best) {
+    best = { ...best, kind: 'USER' };
+  }
   if (!best) return null;
 
   const targetTotal = Math.floor(best.target * item.count);
   const profit = netAfterFees(targetTotal) - price;
   const profitPercent = profit / price;
-  if (profit <= 0) return null;
+  if (profit <= 0 && !finder) return null;
   const perDay = est?.perDay ?? 0;
-  const risk = riskOf(best.tier, perDay, profitPercent, priceSource);
+  const risk = finder && priceSource === 'none' ? 'MEDIUM' : riskOf(best.tier, perDay, profitPercent, priceSource);
 
   // ---- rules ----
-  const subject: RuleSubject = { item: ruleId, rarity, kind: best.kind, price, profit, profitPercent, salesPerDay: perDay, risk };
+  Object.assign(subject, { kind: best.kind, profit, profitPercent, salesPerDay: perDay, risk });
   for (const r of s.blacklist) if (ruleMatches(r, subject, 'blacklist')) return null;
-  const whitelisted = s.whitelist.some((r) => ruleMatches(r, subject, 'whitelist'));
+  const whitelisted = Boolean(finder) || s.whitelist.some((r) => ruleMatches(r, subject, 'whitelist'));
   if (s.whitelistOnly && !whitelisted) return null;
 
   if (!whitelisted) {
@@ -203,6 +224,8 @@ export function evaluateAuction(entry: AuctionEntry, ctx: DetectorContext, apiLa
   };
 }
 
-function ruleMatchesItemOnly(pattern: string, item: string): boolean {
-  return pattern.endsWith('*') ? item.startsWith(pattern.slice(0, -1)) : pattern === item;
+const PRICING_KEYS = ['kind', 'kindNot', 'minProfit', 'maxProfit', 'minProfitPercent', 'maxProfitPercent', 'minSalesPerDay', 'maxSalesPerDay', 'risk'];
+function hasPricingConditions(r: object): boolean {
+  const o = r as Record<string, unknown>;
+  return PRICING_KEYS.some((k) => o[k] !== undefined);
 }

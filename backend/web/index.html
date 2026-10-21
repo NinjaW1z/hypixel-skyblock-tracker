@@ -100,13 +100,23 @@
         <label>Max risk <select name="bzMaxRisk"><option>LOW</option><option>MEDIUM</option><option>HIGH</option></select></label>
       </fieldset>
       <fieldset class="wide">
+        <legend>Starter packs &amp; Coflnet import</legend>
+        <div class="row" id="packs"></div>
+        <div class="row">
+          <label>Mode <select id="importMode"><option value="merge">Merge into current rules</option><option value="replace">Replace current rules</option></select></label>
+        </div>
+        <textarea id="importText" rows="5" spellcheck="false" placeholder='Paste a Coflnet settings export here (e.g. Godflipper.json from a config release): {"minProfit":…, "whitelist":[…], "blacklist":[…]}'></textarea>
+        <div class="row"><button type="button" id="importBtn">Import Coflnet config</button> <span id="importMsg" class="muted"></span></div>
+        <div id="importReport" class="small muted"></div>
+      </fieldset>
+      <fieldset class="wide">
         <legend>Blacklist rules <span class="muted">— drop a flip when every condition in a rule matches</span></legend>
         <textarea name="blacklist" rows="6" spellcheck="false"></textarea>
       </fieldset>
       <fieldset class="wide">
         <legend>Whitelist rules <span class="muted">— force a flip through (ignores thresholds, still respects purse)</span></legend>
         <textarea name="whitelist" rows="6" spellcheck="false"></textarea>
-        <p class="muted small">One JSON object per line or a JSON array. Fields: <code>item</code> (id, <code>PET_ENDER_DRAGON</code>, <code>BOOK_ultimate_wise_5</code>, or prefix with <code>*</code>), <code>rarity</code>, <code>kind</code> (SNIPE/MEDIAN), <code>minPrice</code>, <code>maxPrice</code>, <code>minProfit</code>, <code>minProfitPercent</code> (0.1 = 10%), <code>minSalesPerDay</code>, <code>risk</code>, <code>note</code>.<br>Example: <code>{"item":"PET_*","risk":"HIGH","note":"no risky pets"}</code></p>
+        <p class="muted small">One JSON object per line or a JSON array. Fields: <code>item</code> (id, <code>PET_ENDER_DRAGON</code>, <code>BOOK_ultimate_wise_5</code>, or prefix with <code>*</code>), <code>rarity</code>, <code>kind</code> (SNIPE/MEDIAN), <code>minPrice</code>, <code>maxPrice</code>, <code>minProfit</code>, <code>minProfitPercent</code> (0.1 = 10%), <code>minSalesPerDay</code>, <code>risk</code>, <code>note</code>; item conditions <code>nameContains</code>, <code>category</code>, <code>reforge</code>, <code>shiny</code>, <code>dye</code>, <code>petSkin</code>, <code>skin</code>, <code>colors</code>, <code>candyMin/Max</code>, <code>abilityScrolls</code>, <code>starsMin/Max</code>, <code>petLevelMin/Max</code>, <code>petItem</code>; whitelist <code>finder: true</code> turns a rule into "buy any match under maxPrice".<br>Example: <code>{"item":"PET_*","risk":"HIGH","note":"no risky pets"}</code></p>
       </fieldset>
       <div class="row"><button type="submit">Save</button> <span id="saveMsg"></span></div>
     </form>

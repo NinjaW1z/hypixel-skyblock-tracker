@@ -144,3 +144,33 @@ test('rules: conditional blacklist, whitelist bypass, wildcard, external price s
   assert.equal(g.priceSource, 'coflnet');
   assert.equal(g.median, Math.floor(1_100_000_000 * 0.85));
 });
+
+test('finder whitelist: any match under the cap is a USER flip, even with no price reference', () => {
+  const now = Date.now();
+  const c = ctx({ whitelist: [{ item: 'NECRON_HANDLE', maxPrice: 800_000_000, shiny: true, finder: true }] });
+  const handle = { id: 'NECRON_HANDLE', rarity: 'LEGENDARY', lore: ['§6§lLEGENDARY'] };
+  assert.equal(evaluateAuction(auction({ ...handle, price: 700_000_000 }), c, now, now), null, 'not shiny: finder does not match, no price reference');
+  const f = evaluateAuction(auction({ ...handle, price: 700_000_000, extra: { is_shiny: 1 } }), c, now, now)!;
+  assert.ok(f, 'shiny under the cap');
+  assert.equal(f.kind, 'USER'); assert.equal(f.target, 800_000_000); assert.equal(f.whitelisted, true); assert.equal(f.risk, 'MEDIUM');
+  assert.equal(evaluateAuction(auction({ ...handle, price: 900_000_000, extra: { is_shiny: 1 } }), c, now, now), null, 'over the cap');
+});
+
+test('attribute blacklists: category, name, dye, colours, ability scrolls, kindNot', () => {
+  const now = Date.now();
+  const c = ctx({ blacklist: [{ category: 'FURNITURE' }, { nameContains: 'dye' }, { item: 'HYPERION', abilityScrolls: [] }, { kindNot: 'USER', maxProfit: 1_000_000_000 }] });
+  c.categoryOf = (id) => (id === 'FANCY_CHAIR' ? 'FURNITURE' : undefined);
+  const mk = (over: Record<string, unknown>, price: number) => auction({ id: 'HYPERION', rarity: 'LEGENDARY', lore: ['§6§lLEGENDARY'], price, ...over });
+  c.lowestBin.beginSnapshot();
+  c.lowestBin.add(keysOf(mk({}, 1)), 'o', 1_000_000_000); c.lowestBin.add(keysOf(mk({}, 1)), 'o2', 1_050_000_000);
+  c.lowestBin.commit();
+  assert.equal(evaluateAuction(mk({}, 700_000_000), c, now, now), null, 'no scrolls → blacklisted');
+  const withScrolls = mk({ extra: { ability_scroll: ['IMPLOSION_SCROLL'] } }, 700_000_000);
+  c.lowestBin.beginSnapshot();
+  c.lowestBin.add(keysOf(withScrolls), 'o', 1_000_000_000); c.lowestBin.add(keysOf(withScrolls), 'o2', 1_050_000_000);
+  c.lowestBin.commit();
+  assert.equal(evaluateAuction(withScrolls, c, now, now), null, 'kindNot USER with maxProfit 1b drops the ordinary snipe');
+  c.settings.blacklist = [{ category: 'FURNITURE' }, { nameContains: 'dye' }];
+  assert.ok(evaluateAuction(withScrolls, c, now, now), 'passes once those rules are gone');
+  assert.equal(evaluateAuction(auction({ id: 'FANCY_CHAIR', rarity: 'COMMON', lore: ['§f§lCOMMON'], price: 100, uuid: 'chair' }), c, now, now), null, 'furniture category');
+});

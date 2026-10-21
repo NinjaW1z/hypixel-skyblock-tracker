@@ -329,7 +329,7 @@ public final class SkyFlipMod implements ClientModInitializer {
     // ------------------------------------------------------------------ rendering
 
     private Text render(Flip f) {
-        String kindColor = "SNIPE".equals(f.kind) ? "§b" : "§e";
+        String kindColor = "SNIPE".equals(f.kind) ? "§b" : "USER".equals(f.kind) ? "§d" : "§e";
         String riskColor = "LOW".equals(f.risk) ? "§a" : "MEDIUM".equals(f.risk) ? "§e" : "§c";
         String name = f.itemName + (f.count > 1 ? " x" + f.count : "");
 

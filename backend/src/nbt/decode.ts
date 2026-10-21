@@ -14,6 +14,8 @@ export interface ItemData {
   name: string;
   /** Lore lines with colour codes, as shown in game. */
   lore: string[];
+  /** Leather/armour dye colour as 6-digit hex (e.g. "FF00AA"), when the item carries one. */
+  color?: string;
   reforge?: string;
   enchants: Record<string, number>;
   hotPotato: number;
@@ -31,6 +33,7 @@ export interface ItemData {
     candyUsed: number;
   };
   skin?: string;
+  shiny: boolean;
   artOfWar: number;
   artOfPeace: boolean;
   ethermerge: boolean;
@@ -158,6 +161,7 @@ export function itemFromSimplified(item: Record<string, unknown>): ItemData {
     count,
     name,
     lore,
+    color: typeof display.color === 'number' ? (display.color >>> 0 & 0xffffff).toString(16).toUpperCase().padStart(6, '0') : undefined,
     reforge: typeof ea.modifier === 'string' ? ea.modifier : undefined,
     enchants: numRecord(ea.enchantments),
     hotPotato: asNumber(ea.hot_potato_count),
@@ -167,6 +171,7 @@ export function itemFromSimplified(item: Record<string, unknown>): ItemData {
     attributes: numRecord(ea.attributes),
     pet,
     skin: typeof ea.skin === 'string' ? ea.skin : undefined,
+    shiny: asNumber(ea.is_shiny) > 0,
     artOfWar: asNumber(ea.art_of_war_count),
     artOfPeace: asNumber(ea.artOfPeaceApplied) > 0,
     ethermerge: asNumber(ea.ethermerge) > 0,

@@ -69,7 +69,7 @@ async function main(): Promise<void> {
   };
 
   const bazaar = new BazaarService(client);
-  const server = new FeedServer({ port: config.port, webDir, settings, tracker, bazaar, names, token });
+  const server = new FeedServer({ port: config.port, webDir, settings, tracker, bazaar, names, token, packsDir: resolve(join(here, '..', 'rules')) });
   const auctions = new AuctionPoller(client, lowestBin);
   const ended = new EndedPoller(client, sales, store);
   ended.on('sale', (ev) => tracker.onSale(ev));
@@ -78,7 +78,7 @@ async function main(): Promise<void> {
   const emitted = new Set<string>();
 
   auctions.on('newAuctions', (list, lastUpdated) => {
-    const ctx = { sales, lowestBin, settings: settings.current, external };
+    const ctx = { sales, lowestBin, settings: settings.current, external, categoryOf: (id: string) => names.category(id) };
     const now = Date.now();
     for (const e of list) {
       if (emitted.has(e.auction.uuid)) continue;

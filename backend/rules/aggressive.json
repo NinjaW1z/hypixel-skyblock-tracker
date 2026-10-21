@@ -1,0 +1,33 @@
+{
+  "name": "Aggressive",
+  "description": "Allows medium risk, looser comparables and lower volume for bigger margins. Expect more flips and more duds; prune with the [bl] button as you go.",
+  "settings": {
+    "minProfit": 150000,
+    "minProfitPercent": 0.05,
+    "minSalesPerDay": 1,
+    "maxKeyTier": 2,
+    "maxRisk": "MEDIUM",
+    "kinds": { "SNIPE": true, "MEDIAN": true },
+    "whitelistOnly": false
+  },
+  "blacklist": [
+    { "item": "NEW_YEAR_CAKE*", "note": "collector pricing" },
+    { "item": "PARTY_HAT*", "note": "collector pricing" },
+    { "item": "CAKE_SOUL", "note": "unique items" },
+    { "item": "DYE_*", "risk": "MEDIUM", "note": "only low-risk dye flips" },
+    { "item": "PET_SKIN_*", "risk": "MEDIUM", "note": "only low-risk skin flips" },
+    { "item": "ATTRIBUTE_SHARD", "risk": "MEDIUM", "note": "only exact-roll comparables" },
+    { "item": "STARRED_MIDAS_STAFF", "note": "price depends on coins paid" },
+    { "rarity": "VERY_SPECIAL", "risk": "MEDIUM" },
+    { "minPrice": 1500000000, "note": "skip anything over 1.5b" }
+  ],
+  "whitelist": [
+    { "item": "HYPERION", "rarity": "LEGENDARY", "minProfit": 20000000, "minProfitPercent": 0.03, "risk": "MEDIUM", "note": "liquid; take smaller % on big ticket" },
+    { "item": "TERMINATOR", "minProfit": 15000000, "minProfitPercent": 0.03, "risk": "MEDIUM" },
+    { "item": "NECRON_*", "minProfit": 5000000, "minProfitPercent": 0.04, "risk": "MEDIUM" },
+    { "item": "PET_ENDER_DRAGON", "minProfit": 15000000, "minProfitPercent": 0.04, "risk": "MEDIUM" },
+    { "item": "PET_GOLDEN_DRAGON", "minProfit": 20000000, "minProfitPercent": 0.03, "risk": "MEDIUM" },
+    { "item": "BOOK_ultimate_*", "minProfit": 500000, "minProfitPercent": 0.06, "risk": "MEDIUM", "note": "ultimate books move fast" }
+  ],
+  "bazaar": { "minProfitPerHour": 150000, "minProfitPercent": 0.015, "maxPrice": 0, "minVolumeWeek": 5000, "maxRisk": "MEDIUM" }
+}

@@ -96,6 +96,20 @@ flips are marked `ref: coflnet` in the UI and rated at least MEDIUM risk because
 ignores most modifiers. Price data provided by [Coflnet](https://sky.coflnet.com), used under their
 public API terms with attribution.
 
+### Rule packs and Coflnet config import
+
+The Settings tab has two starter packs, **Conservative** (low risk, high volume, exact
+comparables) and **Aggressive** (medium risk, looser comparables, a few liquid whitelists), loadable
+with one click in merge or replace mode. They live in `backend/rules/*.json`; add your own there.
+
+The same tab imports a Coflnet settings export (the JSON behind `/cofl` settings, e.g. a
+`Godflipper.json` from a public config release). Thresholds, blacklist and whitelist entries are
+converted; Coflnet "user finder" whitelists (`StartingBid < X` plus item conditions) become
+`finder` rules that flag any match under the cap as a USER flip. Filters with no equivalent here
+(mayor/event conditions, craft-cost weights, volatility, item age, …) are dropped from their
+entries and listed in the import report, so you can see what got broader. Expert Configs bought
+on Coflnet's marketplace cannot be exported and so cannot be imported.
+
 ### Mod commands
 
 `/skyflip` shows status, `/skyflip help` lists everything:

@@ -9,7 +9,15 @@ interface ItemsResponse { success: boolean; items: { id: string; name: string; t
  */
 export class ItemNames {
   private map = new Map<string, string>();
+  private categories = new Map<string, string>();
   constructor(private readonly client: HypixelClient) {}
+
+  /** Hypixel item category (PET, HOE, RUNE, FURNITURE, …) when known. */
+  category(id: string): string | undefined {
+    if (id === 'PET') return 'PET';
+    if (id === 'RUNE' || id.endsWith('_RUNE')) return 'RUNE';
+    return this.categories.get(id);
+  }
 
   get size(): number { return this.map.size; }
 
@@ -26,8 +34,13 @@ export class ItemNames {
     try {
       const res = await this.client.get<ItemsResponse>('/resources/skyblock/items');
       const next = new Map<string, string>();
-      for (const it of res.items) if (it.id && it.name) next.set(it.id, it.name);
+      const cats = new Map<string, string>();
+      for (const it of res.items) {
+        if (it.id && it.name) next.set(it.id, it.name);
+        if (it.id && it.category) cats.set(it.id, it.category.toUpperCase());
+      }
       this.map = next;
+      this.categories = cats;
       log.info(`item names loaded: ${next.size}`);
     } catch (e) {
       log.warn('item names refresh failed:', (e as Error).message);

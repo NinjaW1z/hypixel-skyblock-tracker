@@ -9,6 +9,8 @@ import type { SettingsStore, Settings, Rule } from '../flips/settings.js';
 import type { BazaarService, BazaarFlip } from '../bazaar/bazaarService.js';
 import type { ProfitTracker, Purchase } from '../flips/tracker.js';
 import type { ItemNames } from '../hypixel/items.js';
+import { parseCoflnetExport, applyImport } from '../flips/coflnetImport.js';
+import { readdirSync } from 'node:fs';
 
 export interface Status {
   startedAt: number;
@@ -43,6 +45,8 @@ export interface ServerDeps {
   names?: ItemNames;
   /** Shared secret. When set, REST (except static files) and the WebSocket require it. */
   token?: string;
+  /** Directory of starter rule packs (*.json). */
+  packsDir?: string;
 }
 
 const MIME: Record<string, string> = {
@@ -63,6 +67,9 @@ interface ClientMsg {
   item?: string;
   limit?: number;
   days?: number;
+  mode?: 'merge' | 'replace';
+  data?: unknown;
+  pack?: string;
 }
 
 /**
@@ -134,7 +141,7 @@ export class FeedServer {
   private onConnection(ws: WebSocket): void {
     ws.send(JSON.stringify({
       type: 'hello', settings: this.d.settings.current, status: this.status, flips: this.recent.slice(-50), bazaar: this.bazaarTop(30),
-      tokenRequired: Boolean(this.d.token),
+      tokenRequired: Boolean(this.d.token), packs: this.listPacks(),
     }));
     ws.on('message', (data) => {
       let msg: ClientMsg;
@@ -173,9 +180,46 @@ export class FeedServer {
         this.send(ws, { type: 'profit', summary: this.d.tracker.summary(uuid, (m.days ?? 7) * 86_400_000) });
         return;
       }
+      case 'import': {
+        const report = parseCoflnetExport(m.data);
+        if (report.imported > 0 || Object.keys(report.settingsPatch).length) s.update(applyImport(report, s.current, m.mode === 'replace' ? 'replace' : 'merge'));
+        this.send(ws, { type: 'import', report });
+        return;
+      }
+      case 'pack': {
+        const r = this.loadPack(m.pack ?? '', m.mode === 'replace' ? 'replace' : 'merge');
+        this.send(ws, r.ok ? { type: 'msg', text: r.text } : { type: 'msg', level: 'error', text: r.text });
+        return;
+      }
       case 'ping': this.send(ws, { type: 'pong', t: Date.now() }); return;
       default: return;
     }
+  }
+
+  /** Starter packs: {name, description, settings?, blacklist, whitelist, bazaar?} files in packsDir. */
+  listPacks(): { id: string; name: string; description: string; rules: number }[] {
+    if (!this.d.packsDir) return [];
+    try {
+      return readdirSync(this.d.packsDir).filter((f) => f.endsWith('.json')).map((f) => {
+        const p = JSON.parse(readFileSync(join(this.d.packsDir!, f), 'utf8')) as { name?: string; description?: string; blacklist?: unknown[]; whitelist?: unknown[] };
+        return { id: f.replace(/\.json$/, ''), name: p.name ?? f, description: p.description ?? '', rules: (p.blacklist?.length ?? 0) + (p.whitelist?.length ?? 0) };
+      });
+    } catch { return []; }
+  }
+
+  loadPack(id: string, mode: 'merge' | 'replace'): { ok: boolean; text: string } {
+    if (!this.d.packsDir || !/^[a-z0-9_-]+$/i.test(id)) return { ok: false, text: 'unknown pack' };
+    let p: { name?: string; settings?: Partial<Settings>; blacklist?: Rule[]; whitelist?: Rule[]; bazaar?: Settings['bazaar'] };
+    try { p = JSON.parse(readFileSync(join(this.d.packsDir, `${id}.json`), 'utf8')); } catch { return { ok: false, text: 'unknown pack' }; }
+    const cur = this.d.settings.current;
+    const dedupe = (rules: Rule[]) => { const seen = new Set<string>(); return rules.filter((r) => { const k = JSON.stringify(r); if (seen.has(k)) return false; seen.add(k); return true; }); };
+    this.d.settings.update({
+      ...(p.settings ?? {}),
+      ...(p.bazaar ? { bazaar: p.bazaar } : {}),
+      blacklist: mode === 'replace' ? (p.blacklist ?? []) : dedupe([...cur.blacklist, ...(p.blacklist ?? [])]),
+      whitelist: mode === 'replace' ? (p.whitelist ?? []) : dedupe([...cur.whitelist, ...(p.whitelist ?? [])]),
+    });
+    return { ok: true, text: `${p.name ?? id} pack ${mode === 'replace' ? 'loaded (lists replaced)' : 'merged'}` };
   }
 
   private bazaarTop(limit: number): BazaarFlip[] {
@@ -242,6 +286,19 @@ export class FeedServer {
         return json(200, this.d.tracker.summary(uuid, Number(url.searchParams.get('days') ?? 7) * 86_400_000));
       }
       case '/api/players': return json(200, this.d.tracker.trackedPlayers);
+      case '/api/packs':
+        if (req.method === 'GET') return json(200, this.listPacks());
+        return readBody((b) => { const o = b as { pack?: string; mode?: 'merge' | 'replace' }; const r = this.loadPack(o.pack ?? url.searchParams.get('pack') ?? '', o.mode ?? (url.searchParams.get('mode') as 'merge' | 'replace') ?? 'merge'); json(r.ok ? 200 : 400, { ok: r.ok, message: r.text, settings: this.d.settings.current }); });
+      case '/api/import/coflnet':
+        if (req.method !== 'POST' && req.method !== 'PUT') break;
+        return readBody((b) => {
+          const o = b as { export?: unknown; mode?: 'merge' | 'replace' };
+          const data = o && typeof o === 'object' && 'export' in o ? o.export : b;
+          const mode = o?.mode ?? (url.searchParams.get('mode') as 'merge' | 'replace') ?? 'merge';
+          const report = parseCoflnetExport(data);
+          if (report.imported > 0 || Object.keys(report.settingsPatch).length) this.d.settings.update(applyImport(report, this.d.settings.current, mode === 'replace' ? 'replace' : 'merge'));
+          json(200, report);
+        });
       case '/api/settings':
         if (req.method === 'GET') return json(200, this.d.settings.current);
         if (req.method === 'PUT' || req.method === 'POST') return readBody((b) => json(200, this.d.settings.update(b as Partial<Settings>)));

@@ -68,6 +68,8 @@ tr.new td { animation:flash 1.4s ease-out; }
 .kind { font-size:11px; padding:2px 7px; border-radius:6px; font-weight:800; letter-spacing:.3px; }
 .kind.SNIPE { background:rgba(122,167,255,.15); color:var(--blue); }
 .kind.MEDIAN { background:rgba(242,193,78,.15); color:var(--gold); }
+.kind.USER { background:rgba(180,140,255,.15); color:var(--purple); }
+button.pack { background:var(--panel2); color:var(--fg); border:1px solid var(--line2); }
 .profit { color:var(--green); font-weight:600; }
 .loss { color:var(--red); font-weight:600; }
 .risk { font-size:11px; font-weight:700; padding:2px 7px; border-radius:6px; }

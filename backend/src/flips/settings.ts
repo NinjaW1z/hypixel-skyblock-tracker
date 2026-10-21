@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 export type Risk = 'LOW' | 'MEDIUM' | 'HIGH';
-export type FlipKind = 'SNIPE' | 'MEDIAN';
+export type FlipKind = 'SNIPE' | 'MEDIAN' | 'USER';
 
 /**
  * A filter rule in the spirit of Coflnet's blacklist/whitelist entries.
@@ -14,13 +14,49 @@ export interface Rule {
   item?: string;
   rarity?: string;
   kind?: FlipKind;
+  /** Match any kind except this one (Coflnet's ALL_EXCEPT_USER). */
+  kindNot?: FlipKind;
   minPrice?: number;
   maxPrice?: number;
   minProfit?: number;
+  maxProfit?: number;
   minProfitPercent?: number;
+  maxProfitPercent?: number;
   minSalesPerDay?: number;
+  maxSalesPerDay?: number;
   /** Match only flips at this risk or riskier (for blacklists) / up to this risk (for whitelists). */
   risk?: Risk;
+  // ---- item attribute conditions (all optional, all must hold) ----
+  /** Case-insensitive substring of the display name. */
+  nameContains?: string;
+  /** Hypixel item category (PET, HOE, RUNE, FURNITURE, …), from the items resource. */
+  category?: string;
+  reforge?: string;
+  shiny?: boolean;
+  /** Dye item id, or "NONE" for undyed. */
+  dye?: string;
+  /** Pet skin id, or "ANY" for any skin, "NONE" for no skin. */
+  petSkin?: string;
+  /** Armour skin id, "ANY" or "NONE". */
+  skin?: string;
+  /** Leather colour hex values (any of). */
+  colors?: string[];
+  candyMin?: number;
+  candyMax?: number;
+  /** Exact set of ability scrolls (sorted, upper-case); empty array = none. */
+  abilityScrolls?: string[];
+  starsMin?: number;
+  starsMax?: number;
+  petLevelMin?: number;
+  petLevelMax?: number;
+  /** Held pet item id; prefix with "!" to require it NOT be held. */
+  petItem?: string;
+  /**
+   * Whitelist only: a "user finder". When the rule matches, the listing is reported as a USER flip
+   * even without a price reference, using maxPrice as the value estimate. This is how Coflnet
+   * configs express "any X under Y coins is a buy".
+   */
+  finder?: boolean;
   /** Free-form label shown in the UI. */
   note?: string;
 }
@@ -82,6 +118,8 @@ export function ruleItemId(itemId: string, petType?: string, bookKey?: string): 
 
 export interface RuleSubject {
   item: string; rarity: string; kind: FlipKind; price: number; profit: number; profitPercent: number; salesPerDay: number; risk: Risk;
+  name: string; category?: string; reforge?: string; shiny: boolean; dye?: string; petSkin?: string; skin?: string; color?: string;
+  candy: number; abilityScrolls: string[]; stars: number; petLevel?: number; petItem?: string;
 }
 
 export function itemMatches(pattern: string, item: string): boolean {
@@ -89,15 +127,44 @@ export function itemMatches(pattern: string, item: string): boolean {
   return pattern === item;
 }
 
-export function ruleMatches(r: Rule, s: RuleSubject, mode: 'blacklist' | 'whitelist'): boolean {
+/** Conditions that depend only on the item, not on pricing. Used to pre-match finder rules. */
+export function itemConditionsMatch(r: Rule, s: RuleSubject): boolean {
   if (r.item && !itemMatches(r.item, s.item)) return false;
   if (r.rarity && r.rarity !== s.rarity) return false;
-  if (r.kind && r.kind !== s.kind) return false;
   if (r.minPrice !== undefined && s.price < r.minPrice) return false;
   if (r.maxPrice !== undefined && s.price > r.maxPrice) return false;
+  if (r.nameContains && !s.name.toLowerCase().includes(r.nameContains.toLowerCase())) return false;
+  if (r.category && r.category !== s.category) return false;
+  if (r.reforge && r.reforge.toLowerCase() !== (s.reforge ?? '').toLowerCase()) return false;
+  if (r.shiny !== undefined && r.shiny !== s.shiny) return false;
+  if (r.dye && (r.dye === 'NONE' ? s.dye !== undefined : r.dye !== s.dye)) return false;
+  if (r.petSkin && (r.petSkin === 'NONE' ? s.petSkin !== undefined : r.petSkin === 'ANY' ? s.petSkin === undefined : r.petSkin !== s.petSkin)) return false;
+  if (r.skin && (r.skin === 'NONE' ? s.skin !== undefined : r.skin === 'ANY' ? s.skin === undefined : r.skin !== s.skin)) return false;
+  if (r.colors && r.colors.length && (!s.color || !r.colors.some((c) => c.toUpperCase() === s.color))) return false;
+  if (r.candyMin !== undefined && s.candy < r.candyMin) return false;
+  if (r.candyMax !== undefined && s.candy > r.candyMax) return false;
+  if (r.abilityScrolls && (r.abilityScrolls.length !== s.abilityScrolls.length || r.abilityScrolls.some((x, i) => x !== s.abilityScrolls[i]))) return false;
+  if (r.starsMin !== undefined && s.stars < r.starsMin) return false;
+  if (r.starsMax !== undefined && s.stars > r.starsMax) return false;
+  if (r.petLevelMin !== undefined && (s.petLevel ?? 0) < r.petLevelMin) return false;
+  if (r.petLevelMax !== undefined && (s.petLevel ?? 0) > r.petLevelMax) return false;
+  if (r.petItem) {
+    if (r.petItem.startsWith('!')) { if (s.petItem === r.petItem.slice(1)) return false; }
+    else if (s.petItem !== r.petItem) return false;
+  }
+  return true;
+}
+
+export function ruleMatches(r: Rule, s: RuleSubject, mode: 'blacklist' | 'whitelist'): boolean {
+  if (!itemConditionsMatch(r, s)) return false;
+  if (r.kind && r.kind !== s.kind) return false;
+  if (r.kindNot && r.kindNot === s.kind) return false;
   if (r.minProfit !== undefined && s.profit < r.minProfit) return false;
+  if (r.maxProfit !== undefined && s.profit > r.maxProfit) return false;
   if (r.minProfitPercent !== undefined && s.profitPercent < r.minProfitPercent) return false;
+  if (r.maxProfitPercent !== undefined && s.profitPercent > r.maxProfitPercent) return false;
   if (r.minSalesPerDay !== undefined && s.salesPerDay < r.minSalesPerDay) return false;
+  if (r.maxSalesPerDay !== undefined && s.salesPerDay > r.maxSalesPerDay) return false;
   if (r.risk) {
     // Blacklist "risk: MEDIUM" means "drop MEDIUM and HIGH"; whitelist "risk: MEDIUM" means "allow up to MEDIUM".
     if (mode === 'blacklist' && riskRank(s.risk) < riskRank(r.risk)) return false;
@@ -196,14 +263,28 @@ function rules(v: unknown): Rule[] {
     // Back-compat: plain strings are item ids.
     const r: Record<string, unknown> = typeof raw === 'string' ? { item: raw } : raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
     const rule: Rule = {};
-    if (typeof r.item === 'string' && r.item.trim()) rule.item = r.item.trim().toUpperCase();
-    if (typeof r.rarity === 'string' && r.rarity.trim()) rule.rarity = r.rarity.trim().toUpperCase();
-    if (r.kind === 'SNIPE' || r.kind === 'MEDIAN') rule.kind = r.kind;
-    for (const k of ['minPrice', 'maxPrice', 'minProfit', 'minProfitPercent', 'minSalesPerDay'] as const) {
+    const up = (k: string) => (typeof r[k] === 'string' && (r[k] as string).trim() ? (r[k] as string).trim().toUpperCase() : undefined);
+    if (up('item')) rule.item = up('item');
+    if (up('rarity')) rule.rarity = up('rarity');
+    if (r.kind === 'SNIPE' || r.kind === 'MEDIAN' || r.kind === 'USER') rule.kind = r.kind;
+    if (r.kindNot === 'SNIPE' || r.kindNot === 'MEDIAN' || r.kindNot === 'USER') rule.kindNot = r.kindNot;
+    for (const k of ['minPrice', 'maxPrice', 'minProfit', 'maxProfit', 'minProfitPercent', 'maxProfitPercent', 'minSalesPerDay', 'maxSalesPerDay',
+      'candyMin', 'candyMax', 'starsMin', 'starsMax', 'petLevelMin', 'petLevelMax'] as const) {
       if (typeof r[k] === 'number' && Number.isFinite(r[k] as number)) rule[k] = r[k] as number;
     }
     if (r.risk === 'LOW' || r.risk === 'MEDIUM' || r.risk === 'HIGH') rule.risk = r.risk;
-    if (typeof r.note === 'string') rule.note = r.note.slice(0, 120);
+    if (typeof r.nameContains === 'string' && r.nameContains.trim()) rule.nameContains = r.nameContains.trim();
+    if (up('category')) rule.category = up('category');
+    if (typeof r.reforge === 'string' && r.reforge.trim()) rule.reforge = r.reforge.trim();
+    if (typeof r.shiny === 'boolean') rule.shiny = r.shiny;
+    if (up('dye')) rule.dye = up('dye');
+    if (up('petSkin')) rule.petSkin = up('petSkin');
+    if (up('skin')) rule.skin = up('skin');
+    if (Array.isArray(r.colors)) rule.colors = (r.colors as unknown[]).map((c) => String(c).replace('#', '').toUpperCase()).filter((c) => /^[0-9A-F]{6}$/.test(c));
+    if (Array.isArray(r.abilityScrolls)) rule.abilityScrolls = (r.abilityScrolls as unknown[]).map((c) => String(c).toUpperCase()).sort();
+    if (typeof r.petItem === 'string' && r.petItem.trim()) rule.petItem = r.petItem.trim().toUpperCase();
+    if (r.finder === true) rule.finder = true;
+    if (typeof r.note === 'string') rule.note = r.note.slice(0, 160);
     if (Object.keys(rule).filter((k) => k !== 'note').length) out.push(rule);
   }
   return out;
