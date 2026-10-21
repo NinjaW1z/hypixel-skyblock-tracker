@@ -3,6 +3,27 @@
 The backend runs 24/7 on your instance. The website is then reachable from any device, and the
 Minecraft mod connects to the instance instead of localhost.
 
+## 0. Create the instance
+
+Skip this if you will reuse an existing instance. Always Free A1 capacity is shared, so if you
+have two stopped instances using the full 4 OCPU / 24 GB, shrink one first (stop it, Edit, lower
+OCPU and memory, start) or terminate it. Stopped instances still count.
+
+1. Console → **Compute → Instances → Create instance**.
+2. **Name**: `skyflip`. Leave compartment and availability domain as suggested.
+3. **Image and shape → Edit**:
+   - **Change image** → **Canonical Ubuntu** → **24.04** (Always Free eligible). Confirm.
+   - **Change shape** → **Virtual machine** → **Ampere** → **VM.Standard.A1.Flex** → 1 OCPU,
+     6 GB memory. Confirm.
+4. **Networking**: "Create new virtual cloud network" is fine (or pick your existing VCN and its
+   public subnet). Make sure **Assign a public IPv4 address** is selected.
+5. **Add SSH keys** → **Generate a key pair for me** → **Save private key**. Keep that file; it is
+   the only way in. (If you already have a key, paste the public key instead.)
+6. **Boot volume**: defaults are fine (about 47 GB, within the 200 GB free total).
+7. **Create**. If you get "Out of host capacity", A1 capacity in that availability domain is full:
+   try another availability domain in the placement section, or retry later. This is common.
+8. Wait for the state to turn **Running** and copy the **Public IP address** from the instance page.
+
 ## 1. Open the port in the Oracle console (the script cannot do this)
 
 Oracle blocks inbound traffic at the network level until you allow it.
