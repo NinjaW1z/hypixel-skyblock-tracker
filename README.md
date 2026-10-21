@@ -5,9 +5,26 @@ latency the public API allows, plus a Fabric mod that puts the flips in your cha
 `/viewauction`.
 
 ```
-backend/   Node 22 + TypeScript: ingestion, pricing, flip detection, web UI, WebSocket feed
+backend/   Node 22 + TypeScript: ingestion, pricing, flip detection, bazaar flips, profit tracking, web UI, WebSocket feed
 mod/       Fabric 1.21.1 client mod: chat feed, keybinds, /skyflip commands
+deploy/    One-command install for an Oracle Cloud (or any Linux) instance, systemd unit, optional HTTPS
 ```
+
+## Feature map against Coflnet Premium+
+
+| Coflnet feature | SkyFlip |
+|---|---|
+| Instant flip delivery | Yes. There is no artificial delay for anyone. |
+| Pre-API flips | No. Those come from Coflnet's mod-user network and cannot be reproduced. |
+| Sniper + median finders | Yes. SNIPE (next-lowest BIN) and MEDIAN (trimmed median of recent sales), with Coflnet's public price API as a bootstrap reference until our own history is deep. |
+| Blacklist / whitelist with per-item filters | Yes. Rules with item (exact or prefix*), rarity, kind, price, profit, percent, volume and risk conditions. Whitelist bypasses thresholds. |
+| `/cofl set …` settings | `/skyflip set <key> <value>` plus shortcuts: minprofit, minpercent, purse, minvolume, mode, tier, risk. |
+| Lore on hover, lbin/median/volume/seller toggles | Yes. `/skyflip show <field>`, `/skyflip lore`. |
+| Flip sound and ping on big flips | Yes. `/skyflip sound`, `/skyflip ping <coins>`. |
+| Profit tracking | Yes. The mod identifies your player UUID; buys and resales are matched by item UUID. `/skyflip profit [days]` and the Profit tab. |
+| Bazaar flipper | Yes. Order-spread flips with weekly volume, tax, profit per hour and risk. `/skyflip bazaar [n]` and the Bazaar tab. Craft flips are not included yet. |
+| Website | Yes. Flips, Bazaar, Profit and Settings tabs, token protected, usable from a phone when hosted on your server. |
+| Multiple accounts | Yes. Every connected mod identifies its own player; the backend tracks all of them. |
 
 ## How it works
 
@@ -38,7 +55,16 @@ its mod users' in-game data; that is a network effect, not something one install
 and anything that buys for you. Both the web UI and the mod only hand you the `/viewauction`
 command; the purchase is your click.
 
-## Run the backend
+## Run on your server (recommended)
+
+Hosting the backend on an always-on machine means price history keeps accumulating, the website is
+reachable from your phone, and the mod connects from any PC. The `deploy/` folder has a one-command
+installer for Oracle Cloud Always Free (or any Ubuntu / Oracle Linux box) that sets up Node 22, a
+systemd service, the firewall rule and a random access token. See [deploy/README.md](deploy/README.md).
+
+Then in game: `/skyflip url ws://<your-ip>:3131/ws` and `/skyflip token <token>`.
+
+## Run the backend locally
 
 Requires Node 22.13+ (uses the built-in `node:sqlite`).
 
@@ -57,8 +83,34 @@ Open http://localhost:3131. Flips appear within a second or two of each API refr
 MEDIAN flips need sold history. Leave it running: after a day most liquid items have enough sales,
 after a week nearly everything does. SNIPE flips work immediately.
 
-Environment variables (all optional): `PORT`, `DATA_DIR`, `HYPIXEL_BASE`, `HTTP_CONNECTIONS`,
-`PRE_REFRESH_LEAD_MS`, `PROBE_INTERVAL_MS`, `HISTORY_DAYS`, `DEBUG=1`.
+Environment variables (all optional): `PORT`, `DATA_DIR`, `SKYFLIP_TOKEN` (shared secret; set it
+before exposing the port), `HYPIXEL_BASE`, `HTTP_CONNECTIONS`, `PRE_REFRESH_LEAD_MS`,
+`PROBE_INTERVAL_MS`, `HISTORY_DAYS`, `COFLNET=0` (disable the Coflnet price bootstrap),
+`COFLNET_RPM`, `BAZAAR_INTERVAL_MS`, `DEBUG=1`. `HTTPS_PROXY`/`NO_PROXY` are honoured.
+
+### Price data sources
+
+Reference prices come first from our own sold-auction history (persisted in SQLite), and while that
+is thin, from the public [Coflnet API](https://sky.coflnet.com/api) per item tag and rarity. Those
+flips are marked `ref: coflnet` in the UI and rated at least MEDIUM risk because the Coflnet median
+ignores most modifiers. Price data provided by [Coflnet](https://sky.coflnet.com), used under their
+public API terms with attribution.
+
+### Mod commands
+
+`/skyflip` shows status, `/skyflip help` lists everything:
+
+- client: `toggle`, `sound`, `lore`, `shortnumbers`, `hypixelonly`, `notify`, `reconnect`,
+  `url <ws://…>`, `token <t>`, `risk <LOW|MEDIUM|HIGH>`, `ping <coins>`,
+  `show <lbin|median|volume|percent|seller|lag>`, `ah`
+- server settings: `minprofit <n>`, `minpercent <n>`, `purse <n>`, `minvolume <n>`,
+  `mode <sniper|median|all>`, `tier <0-4>`, `set <key> <value>`
+- filters: `blacklist|whitelist add <item> [risk=HIGH] [minprofit=1m] [maxprice=50m]
+  [minpercent=10] [kind=SNIPE] [rarity=LEGENDARY] [volume=2]`, `remove <item>`, `list`
+  (aliases `bl`, `wl`; every flip line has a `[bl]` button that pre-fills the command)
+- data: `bazaar [n]`, `profit [days]`
+
+Keybinds: `V` opens the newest flip, `B` the most profitable one from the last 20 seconds.
 
 ## Run offline against the mock API
 

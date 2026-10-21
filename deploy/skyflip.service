@@ -1,0 +1,35 @@
+[Unit]
+Description=SkyFlip - Hypixel SkyBlock auction flipper backend
+Documentation=https://github.com/ninjaw1z/hypixel-skyblock-tracker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=skyflip
+Group=skyflip
+WorkingDirectory=/opt/skyflip/backend
+EnvironmentFile=/etc/skyflip/skyflip.env
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node --enable-source-maps dist/main.js
+Restart=always
+RestartSec=3
+# The poller keeps 32+ sockets open to the API plus client connections.
+LimitNOFILE=65535
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+ReadWritePaths=/var/lib/skyflip
+
+[Install]
+WantedBy=multi-user.target

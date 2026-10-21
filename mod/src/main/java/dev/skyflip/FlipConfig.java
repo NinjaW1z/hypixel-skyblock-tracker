@@ -8,23 +8,39 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-/** Persisted in config/skyflip.json. */
+/** Persisted in config/skyflip.json. Server-side settings (thresholds, filters) live on the backend. */
 public final class FlipConfig {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final Path FILE = FabricLoader.getInstance().getConfigDir().resolve("skyflip.json");
 
     /** WebSocket endpoint of the backend. */
     public String url = "ws://127.0.0.1:3131/ws";
+    /** Shared secret (SKYFLIP_TOKEN on the server); empty when the server has none. */
+    public String token = "";
     /** Show flips in chat. */
     public boolean enabled = true;
     /** Ping on each flip. */
     public boolean sound = true;
     /** Only show flips while connected to Hypixel (the command only works there anyway). */
     public boolean hypixelOnly = true;
-    /** Hide flips with this risk or worse: "HIGH" hides nothing, "MEDIUM" hides HIGH, "LOW" hides MEDIUM+HIGH. */
+    /** Hide flips with this risk or worse on the client side: HIGH hides nothing, MEDIUM hides HIGH, LOW hides MEDIUM+HIGH. */
     public String maxRisk = "HIGH";
     /** Drop flips older than this many seconds when pressing the open keybind. */
     public int staleAfterSeconds = 20;
+
+    // ---- chat line visibility (Coflnet "/cofl set mod..." equivalents) ----
+    public boolean showLowestBin = true;
+    public boolean showMedian = true;
+    public boolean showVolume = true;
+    public boolean showProfitPercent = true;
+    public boolean showSeller = false;
+    public boolean showLag = false;
+    public boolean showLore = true;
+    public boolean shortNumbers = true;
+    /** Ping (louder sound) when profit is at least this many coins. 0 = never. */
+    public long pingAbove = 10_000_000L;
+    /** Print purchase/sale notifications for your own flips. */
+    public boolean notifySales = true;
 
     public static FlipConfig load() {
         try {
@@ -48,8 +64,7 @@ public final class FlipConfig {
     }
 
     public boolean riskAllowed(String risk) {
-        int allowed = rank(maxRisk);
-        return rank(risk) <= allowed;
+        return rank(risk) <= rank(maxRisk);
     }
 
     private static int rank(String r) {

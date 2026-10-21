@@ -9,35 +9,105 @@
 <body>
 <header>
   <div class="brand">SkyFlip <span id="conn" class="pill off">offline</span></div>
+  <nav id="tabs">
+    <button data-tab="flips" class="active">Flips</button>
+    <button data-tab="bazaar">Bazaar</button>
+    <button data-tab="profit">Profit</button>
+    <button data-tab="settings">Settings</button>
+  </nav>
   <div class="stats" id="stats"></div>
-  <button id="settingsBtn" class="ghost">Settings</button>
 </header>
 
-<section id="settings" class="panel hidden">
-  <form id="settingsForm">
-    <label>Min profit <input name="minProfit" type="number" min="0" step="1000"></label>
-    <label>Min profit % <input name="minProfitPercent" type="number" min="0" step="1"></label>
-    <label>Max price (0 = any) <input name="maxPrice" type="number" min="0" step="100000"></label>
-    <label>Min sales/day (median) <input name="minSalesPerDay" type="number" min="0" step="0.5"></label>
-    <label>Max key tier (0 exact … 4 loose) <input name="maxKeyTier" type="number" min="0" max="4" step="1"></label>
-    <label class="chk"><input name="SNIPE" type="checkbox"> Snipe flips (vs lowest BIN)</label>
-    <label class="chk"><input name="MEDIAN" type="checkbox"> Median flips (vs sold history)</label>
-    <label class="chk"><input name="sound" type="checkbox"> Sound</label>
-    <label>Blacklist item ids <input name="blacklist" placeholder="HYPERION, PET"></label>
-    <label>Whitelist item ids <input name="whitelist" placeholder="leave empty for all"></label>
-    <div class="row"><button type="submit">Save</button> <span id="saveMsg"></span></div>
+<section id="tokenPanel" class="panel hidden">
+  <form id="tokenForm" class="inline">
+    <label>Access token <input name="token" type="password" placeholder="SKYFLIP_TOKEN from the server" autocomplete="off"></label>
+    <button type="submit">Connect</button>
+    <span class="muted">The server requires a token. It is printed by the installer and stored in /etc/skyflip/skyflip.env.</span>
   </form>
 </section>
 
 <main>
-  <table id="flips">
-    <thead><tr>
-      <th>Age</th><th>Kind</th><th>Item</th><th>Price</th><th>Target</th><th>Profit</th><th>%</th><th>Sales/d</th><th>Risk</th><th>Lag</th><th></th>
-    </tr></thead>
-    <tbody></tbody>
-  </table>
-  <p id="empty" class="muted">Waiting for the next API refresh. Flips appear here within a second or two of Hypixel's cache update.</p>
+  <section id="tab-flips" class="tab">
+    <div class="toolbar">
+      <label class="chk"><input type="checkbox" id="showLore" checked> Lore on hover</label>
+      <label class="chk"><input type="checkbox" id="onlyLow"> Low risk only</label>
+      <span class="muted" id="flipCount"></span>
+    </div>
+    <table id="flips">
+      <thead><tr>
+        <th>Age</th><th>Kind</th><th>Item</th><th>Price</th><th>Target</th><th>Profit</th><th>%</th><th>Sales/d</th><th>Risk</th><th>Lag</th><th></th>
+      </tr></thead>
+      <tbody></tbody>
+    </table>
+    <p id="empty" class="muted">Waiting for the next API refresh. Flips appear here within a second or two of Hypixel's cache update.</p>
+  </section>
+
+  <section id="tab-bazaar" class="tab hidden">
+    <div class="toolbar">
+      <span class="muted">Order flips: place a buy order at the buy price, then a sell offer at the sell price. Profit is after the 1.25% bazaar tax. Updated every 20s; filters are in Settings.</span>
+      <span class="muted" id="bazaarUpdated"></span>
+    </div>
+    <table id="bazaar">
+      <thead><tr>
+        <th>Product</th><th>Buy order</th><th>Sell offer</th><th>Profit/unit</th><th>%</th><th>Units/h</th><th>Profit/h</th><th>Vol/week (buy · sell)</th><th>Risk</th><th></th>
+      </tr></thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section id="tab-profit" class="tab hidden">
+    <form id="profitForm" class="inline">
+      <label>Player UUID <input name="uuid" placeholder="from /skyflip in game, or pick below" list="players"></label>
+      <datalist id="players"></datalist>
+      <label>Days <input name="days" type="number" value="7" min="1" max="90"></label>
+      <button type="submit">Show</button>
+      <span class="muted">Players are tracked once the mod connects. Purchases and resales are matched by the item's own UUID.</span>
+    </form>
+    <div id="profitSummary" class="cards"></div>
+    <table id="purchases">
+      <thead><tr><th>Bought</th><th>Item</th><th>Paid</th><th>Predicted</th><th>Sold for</th><th>Realized</th><th>Held</th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <div id="events" class="events"></div>
+  </section>
+
+  <section id="tab-settings" class="tab hidden">
+    <form id="settingsForm">
+      <fieldset>
+        <legend>Auction flips</legend>
+        <label>Min profit <input name="minProfit" type="number" min="0" step="1000"></label>
+        <label>Min profit % <input name="minProfitPercent" type="number" min="0" step="1"></label>
+        <label>Max price / purse (0 = any) <input name="maxPrice" type="number" min="0" step="100000"></label>
+        <label>Min sales per day (median flips) <input name="minSalesPerDay" type="number" min="0" step="0.5"></label>
+        <label>Max key tier (0 exact … 4 loose) <input name="maxKeyTier" type="number" min="0" max="4" step="1"></label>
+        <label>Max risk <select name="maxRisk"><option>LOW</option><option>MEDIUM</option><option>HIGH</option></select></label>
+        <label class="chk"><input name="SNIPE" type="checkbox"> Snipe flips (vs lowest BIN)</label>
+        <label class="chk"><input name="MEDIAN" type="checkbox"> Median flips (vs sold history)</label>
+        <label class="chk"><input name="whitelistOnly" type="checkbox"> Whitelist only</label>
+        <label class="chk"><input name="sound" type="checkbox"> Sound</label>
+      </fieldset>
+      <fieldset>
+        <legend>Bazaar flips</legend>
+        <label>Min profit per hour <input name="bzMinProfitPerHour" type="number" min="0" step="10000"></label>
+        <label>Min profit % <input name="bzMinProfitPercent" type="number" min="0" step="0.5"></label>
+        <label>Max unit price (0 = any) <input name="bzMaxPrice" type="number" min="0" step="1000"></label>
+        <label>Min weekly volume <input name="bzMinVolumeWeek" type="number" min="0" step="100"></label>
+        <label>Max risk <select name="bzMaxRisk"><option>LOW</option><option>MEDIUM</option><option>HIGH</option></select></label>
+      </fieldset>
+      <fieldset class="wide">
+        <legend>Blacklist rules <span class="muted">— drop a flip when every condition in a rule matches</span></legend>
+        <textarea name="blacklist" rows="6" spellcheck="false"></textarea>
+      </fieldset>
+      <fieldset class="wide">
+        <legend>Whitelist rules <span class="muted">— force a flip through (ignores thresholds, still respects purse)</span></legend>
+        <textarea name="whitelist" rows="6" spellcheck="false"></textarea>
+        <p class="muted small">One JSON object per line or a JSON array. Fields: <code>item</code> (id, <code>PET_ENDER_DRAGON</code>, <code>BOOK_ultimate_wise_5</code>, or prefix with <code>*</code>), <code>rarity</code>, <code>kind</code> (SNIPE/MEDIAN), <code>minPrice</code>, <code>maxPrice</code>, <code>minProfit</code>, <code>minProfitPercent</code> (0.1 = 10%), <code>minSalesPerDay</code>, <code>risk</code>, <code>note</code>.<br>Example: <code>{"item":"PET_*","risk":"HIGH","note":"no risky pets"}</code></p>
+      </fieldset>
+      <div class="row"><button type="submit">Save</button> <span id="saveMsg"></span></div>
+    </form>
+  </section>
 </main>
+<div id="tooltip" class="tooltip hidden"></div>
 <script src="app.js"></script>
 </body>
 </html>

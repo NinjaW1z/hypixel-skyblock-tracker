@@ -41,6 +41,8 @@ export class SalesBook {
     this.total++;
     for (let t = 0; t < KEY_TIERS && t < keys.length; t++) {
       const k = keys[t];
+      // Tiers collapse to the same key when an item has no modifiers at that level; count it once.
+      if (t > 0 && k === keys[t - 1]) continue;
       let arr = this.byKey.get(k);
       if (!arr) { arr = []; this.byKey.set(k, arr); }
       arr.push({ price, ts, bin });
@@ -106,6 +108,7 @@ export class LowestBinBook {
   add(keys: string[], uuid: string, unitPrice: number): void {
     for (let t = 0; t < 2 && t < keys.length; t++) {
       const k = keys[t];
+      if (t > 0 && k === keys[t - 1]) continue;
       let arr = this.next.get(k);
       if (!arr) { arr = []; this.next.set(k, arr); }
       if (arr.length < this.keep) {

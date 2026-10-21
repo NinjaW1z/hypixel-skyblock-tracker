@@ -67,7 +67,8 @@ export class HypixelClient {
     await this.pool.close();
   }
 
-  private async getJson<T>(path: string, attempt = 0): Promise<T> {
+  /** GET any path under the API base and parse JSON (gzip negotiated, 429/5xx retried). */
+  async get<T>(path: string, attempt = 0): Promise<T> {
     this.requests++;
     const res = await this.pool.request({
       origin: this.origin,
@@ -88,7 +89,7 @@ export class HypixelClient {
       if ((res.statusCode === 429 || res.statusCode >= 500) && attempt < 5) {
         log.warn(`HTTP ${res.statusCode} on ${path}, retrying in ${waitMs}ms`);
         await sleep(waitMs);
-        return this.getJson<T>(path, attempt + 1);
+        return this.get<T>(path, attempt + 1);
       }
       throw new HttpError(res.statusCode, path, waitMs);
     }
@@ -103,7 +104,7 @@ export class HypixelClient {
 
   /** Fetch one page of active auctions. */
   async auctionsPage(page: number): Promise<AuctionsPage> {
-    return this.getJson<AuctionsPage>(`/skyblock/auctions?page=${page}`);
+    return this.get<AuctionsPage>(`/skyblock/auctions?page=${page}`);
   }
 
   /**
@@ -124,6 +125,6 @@ export class HypixelClient {
 
   /** Auctions that ended (sold or expired with bids) in the last ~60s. */
   async ended(): Promise<EndedResponse> {
-    return this.getJson<EndedResponse>('/skyblock/auctions_ended');
+    return this.get<EndedResponse>('/skyblock/auctions_ended');
   }
 }

@@ -58,3 +58,14 @@ test('lowest bin book returns the cheapest other listing and swaps atomically', 
   assert.equal(lb.lowestOther('K1', 'b')?.uuid, 'c');
   assert.equal(lb.lowestOther('nope', 'b'), undefined);
 });
+
+test('identical tier keys are counted once', () => {
+  const book = new SalesBook(7);
+  const now = Date.now();
+  book.record(['X|LEG', 'X|LEG', 'X|LEG', 'X|LEG', 'X'], 100, now, true);
+  book.record(['X|LEG', 'X|LEG', 'X|LEG', 'X|LEG', 'X'], 100, now, true);
+  assert.equal(book.estimate(['X|LEG', 'X|LEG', 'X|LEG', 'X|LEG', 'X'], now), undefined, '2 sales must not look like 6');
+  const lb = new LowestBinBook();
+  lb.beginSnapshot(); lb.add(['K', 'K'], 'a', 5); lb.commit();
+  assert.deepEqual(lb.othersOf('K', 'zzz'), [5]);
+});

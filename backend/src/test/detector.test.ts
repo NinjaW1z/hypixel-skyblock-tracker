@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { auction } from './helpers.js';
-import { evaluateAuction as evalRaw, toEntry } from '../flips/detector.js';
+import { evaluateAuction as evalRaw, toEntry, type DetectorContext } from '../flips/detector.js';
 import type { Auction } from '../hypixel/types.js';
 const evaluateAuction = (a: Auction, c: Parameters<typeof evalRaw>[1], lu: number, now?: number) => evalRaw(toEntry(a), c, lu, now);
 import { SalesBook, LowestBinBook } from '../pricing/priceBook.js';
@@ -12,7 +12,7 @@ import { buildKeys } from '../pricing/key.js';
 
 const spec = { id: 'HYPERION', rarity: 'LEGENDARY', lore: ['§6§lLEGENDARY'], extra: { modifier: 'heroic', upgrade_level: 10 } };
 
-function ctx(settings: Partial<Settings> = {}) {
+function ctx(settings: Partial<Settings> = {}): DetectorContext {
   return { sales: new SalesBook(7), lowestBin: new LowestBinBook(), settings: { ...DEFAULT_SETTINGS, ...settings, kinds: { ...DEFAULT_SETTINGS.kinds, ...(settings.kinds ?? {}) } } };
 }
 function keysOf(a: ReturnType<typeof auction>) { const it = decodeItemBytes(itemBytesOf(a)); return buildKeys(it, it.rarity ?? a.tier); }
@@ -84,12 +84,15 @@ test('median flips need volume and respect maxKeyTier', () => {
 });
 
 test('filters: non-BIN, blacklist, whitelist, maxPrice, stacks', () => {
-  const c = ctx({ blacklist: ['HYPERION'] });
-  c.lowestBin.beginSnapshot(); c.lowestBin.add(keysOf(auction({ ...spec, price: 1 })), 'o', 1_000_000_000); c.lowestBin.commit();
+  const c = ctx({ blacklist: [{ item: 'HYPERION' }] });
+  c.lowestBin.beginSnapshot();
+  c.lowestBin.add(keysOf(auction({ ...spec, price: 1 })), 'o', 1_000_000_000);
+  c.lowestBin.add(keysOf(auction({ ...spec, price: 1 })), 'o2', 1_050_000_000);
+  c.lowestBin.commit();
   assert.equal(evaluateAuction(auction({ ...spec, price: 100 }), c, Date.now()), null, 'blacklisted');
-  c.settings.blacklist = []; c.settings.whitelist = ['TERMINATOR'];
+  c.settings.blacklist = []; c.settings.whitelist = [{ item: 'TERMINATOR' }]; c.settings.whitelistOnly = true;
   assert.equal(evaluateAuction(auction({ ...spec, price: 100 }), c, Date.now()), null, 'not whitelisted');
-  c.settings.whitelist = [];
+  c.settings.whitelist = []; c.settings.whitelistOnly = false;
   assert.equal(evaluateAuction(auction({ ...spec, price: 100, bin: false }), c, Date.now()), null, 'not bin');
   c.settings.maxPrice = 50;
   assert.equal(evaluateAuction(auction({ ...spec, price: 100 }), c, Date.now()), null, 'over purse');
@@ -98,9 +101,46 @@ test('filters: non-BIN, blacklist, whitelist, maxPrice, stacks', () => {
   // 16-stack priced per unit
   const c2 = ctx();
   const stackSpec = { id: 'RECOMBOBULATOR_3000', rarity: 'EPIC', lore: ['§5§lEPIC'] };
-  c2.lowestBin.beginSnapshot(); c2.lowestBin.add(keysOf(auction({ ...stackSpec, price: 1 })), 'o', 7_000_000); c2.lowestBin.commit();
+  c2.lowestBin.beginSnapshot();
+  c2.lowestBin.add(keysOf(auction({ ...stackSpec, price: 1 })), 'o', 7_000_000);
+  c2.lowestBin.add(keysOf(auction({ ...stackSpec, price: 1 })), 'o2', 7_100_000);
+  c2.lowestBin.commit();
   const flip = evaluateAuction(auction({ ...stackSpec, count: 16, price: 80_000_000 }), c2, Date.now())!;
   assert.ok(flip);
   assert.equal(flip.count, 16);
   assert.equal(flip.target, 112_000_000);
+});
+
+test('rules: conditional blacklist, whitelist bypass, wildcard, external price source', () => {
+  const now = Date.now();
+  const market = (c: ReturnType<typeof ctx>) => {
+    c.lowestBin.beginSnapshot();
+    c.lowestBin.add(keysOf(auction({ ...spec, price: 1 })), 'o', 1_000_000_000);
+    c.lowestBin.add(keysOf(auction({ ...spec, price: 1 })), 'o2', 1_050_000_000);
+    c.lowestBin.commit();
+  };
+  // Blacklist only when risk is HIGH: a no-history 25% flip is MEDIUM risk, so it passes.
+  const c = ctx({ blacklist: [{ item: 'HYP*', risk: 'HIGH' }] });
+  market(c);
+  assert.ok(evaluateAuction(auction({ ...spec, price: 750_000_000 }), c, now, now), 'medium risk passes a HIGH-only blacklist');
+  c.settings.blacklist = [{ item: 'HYP*', minProfitPercent: 0.2 }];
+  assert.equal(evaluateAuction(auction({ ...spec, price: 750_000_000 }), c, now, now), null, 'wildcard + percent condition drops it');
+
+  // Whitelist bypasses minProfit.
+  const w = ctx({ minProfit: 500_000_000, whitelist: [{ item: 'HYPERION', rarity: 'LEGENDARY' }] });
+  market(w);
+  const f = evaluateAuction(auction({ ...spec, price: 900_000_000 }), w, now, now)!;
+  assert.ok(f && f.whitelisted, 'whitelisted flip ignores minProfit');
+  assert.equal(f.ruleId, 'HYPERION');
+  assert.ok(f.lore.length >= 1);
+
+  // External price source fills in when there is no sales history.
+  const e = ctx();
+  e.lowestBin.beginSnapshot(); e.lowestBin.add(keysOf(auction({ ...spec, price: 1 })), 'o', 1_000_000_000); e.lowestBin.commit();
+  assert.equal(evaluateAuction(auction({ ...spec, price: 600_000_000 }), e, now, now), null, 'single listing, no history');
+  e.external = { lookup: () => ({ median: 1_100_000_000, volumePerDay: 12 }) };
+  const g = evaluateAuction(auction({ ...spec, price: 600_000_000 }), e, now, now)!;
+  assert.ok(g, 'coflnet median allows the single-listing snipe');
+  assert.equal(g.priceSource, 'coflnet');
+  assert.equal(g.median, Math.floor(1_100_000_000 * 0.85));
 });

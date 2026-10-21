@@ -34,6 +34,12 @@ export const config = {
   stalePageRetryDelayMs: num('STALE_PAGE_RETRY_DELAY_MS', 150),
   /** Days of sales history to keep in memory for medians. */
   historyDays: num('HISTORY_DAYS', 7),
+  /** Use Coflnet's public price API to fill reference-price gaps (set COFLNET=0 to disable). */
+  coflnet: str('COFLNET', '1') !== '0',
+  /** Requests per minute budget for Coflnet (their limit is 100/min). */
+  coflnetRpm: num('COFLNET_RPM', 40),
+  /** How often to pull the bazaar snapshot. */
+  bazaarIntervalMs: num('BAZAAR_INTERVAL_MS', 20_000),
   /** Verbose logging. */
   debug: str('DEBUG', '') !== '',
 };

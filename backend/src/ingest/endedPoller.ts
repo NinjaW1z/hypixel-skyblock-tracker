@@ -6,6 +6,7 @@ import { decodeItemBytes } from '../nbt/decode.js';
 import { buildKeys } from '../pricing/key.js';
 import type { SalesBook } from '../pricing/priceBook.js';
 import type { Store } from '../storage/db.js';
+import type { SaleEvent } from '../flips/tracker.js';
 
 /**
  * Pulls /skyblock/auctions_ended once per API refresh and folds every sale into the
@@ -28,6 +29,7 @@ export class EndedPoller extends EventEmitter {
     if (res.lastUpdated <= this.lastUpdated) return 0;
     this.lastUpdated = res.lastUpdated;
     const rows = [];
+    const events: SaleEvent[] = [];
     for (const e of res.auctions) {
       try {
         const item = decodeItemBytes(itemBytesOf(e));
@@ -35,11 +37,13 @@ export class EndedPoller extends EventEmitter {
         const unit = e.price / item.count;
         this.sales.record(keys, unit, e.timestamp, e.bin);
         rows.push({ auctionId: e.auction_id, itemId: item.id, keys, unitPrice: unit, count: item.count, bin: e.bin, ts: e.timestamp });
+        events.push({ auctionId: e.auction_id, seller: e.seller, buyer: e.buyer, price: e.price, ts: e.timestamp, bin: e.bin, item });
       } catch { /* skip undecodable */ }
     }
     this.store.saveSales(rows);
     this.recorded += rows.length;
     this.emit('sales', rows.length, res.lastUpdated);
+    for (const ev of events) this.emit('sale', ev);
     return rows.length;
   }
 

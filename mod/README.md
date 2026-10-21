@@ -6,8 +6,10 @@ Client-side mod that connects to the SkyFlip backend's WebSocket feed and shows 
   own auction GUI. You confirm the purchase there by hand.
 - `V` opens the newest flip, `B` opens the most profitable flip from the last 20 seconds.
   Rebind both under Options → Controls → SkyFlip.
-- `/skyflip` shows status and lists the sub-commands (toggle, sound, reconnect, url, risk,
-  minprofit, maxprice, hypixelonly).
+- `/skyflip` shows status, `/skyflip help` lists every command: client display toggles, server
+  settings (`minprofit`, `purse`, `mode`, …), blacklist/whitelist rules, `bazaar` and `profit`.
+- Every flip line has `[copy]` (auction id) and `[bl]` (pre-fills a blacklist command).
+- When the server has a token: `/skyflip token <token>`; remote server: `/skyflip url ws://host:3131/ws`.
 
 Nothing in the mod buys, bids, or runs a command without your click or key press. That keeps it
 on the same side of Hypixel's rules as the Coflnet mod, which works the same way.
@@ -36,10 +38,18 @@ To target another Minecraft version, update `minecraft_version`, `yarn_mappings`
 ```json
 {
   "url": "ws://127.0.0.1:3131/ws",
+  "token": "",
   "enabled": true,
   "sound": true,
   "hypixelOnly": true,
   "maxRisk": "HIGH",
-  "staleAfterSeconds": 20
+  "staleAfterSeconds": 20,
+  "showLowestBin": true, "showMedian": true, "showVolume": true, "showProfitPercent": true,
+  "showSeller": false, "showLag": false, "showLore": true, "shortNumbers": true,
+  "pingAbove": 10000000,
+  "notifySales": true
 }
+
+Thresholds, filters and flip kinds are server-side settings (shared by the website and every
+connected mod); change them with `/skyflip set …` or in the website's Settings tab.
 ```

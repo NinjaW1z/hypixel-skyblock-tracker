@@ -12,6 +12,8 @@ export interface ItemData {
   count: number;
   /** Display name with color codes stripped. */
   name: string;
+  /** Lore lines with colour codes, as shown in game. */
+  lore: string[];
   reforge?: string;
   enchants: Record<string, number>;
   hotPotato: number;
@@ -155,6 +157,7 @@ export function itemFromSimplified(item: Record<string, unknown>): ItemData {
     id,
     count,
     name,
+    lore,
     reforge: typeof ea.modifier === 'string' ? ea.modifier : undefined,
     enchants: numRecord(ea.enchantments),
     hotPotato: asNumber(ea.hot_potato_count),
