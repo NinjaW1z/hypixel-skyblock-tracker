@@ -1,0 +1,39 @@
+{
+  "mode": "dry",
+  "feed": { "url": "ws://127.0.0.1:3131/ws", "token": "set SKYFLIP_TOKEN or WEBSOCKET_URL in the environment instead" },
+  "minecraft": {
+    "host": "mc.hypixel.net",
+    "port": 25565,
+    "version": "1.8.9",
+    "account": "",
+    "authDir": "./data/auth",
+    "homeCommand": "/is"
+  },
+  "buy": {
+    "maxPrice": 0,
+    "maxAgeMs": 25000,
+    "purseReserve": 1000000,
+    "maxBuysPerCycle": 2,
+    "maxBuysPerHour": 40,
+    "maxSpendPerHour": 0,
+    "maxOpenFlips": 0,
+    "itemCooldownMs": 300000,
+    "requirePriceCheck": true,
+    "bedGraceMs": 4000,
+    "bedPreOpenMs": 1500
+  },
+  "sell": { "enabled": true, "reserveAuctionSlots": 2, "maxAuctionSlots": 14 },
+  "timing": {
+    "commandDelayMs": 350,
+    "windowTimeoutMs": 3000,
+    "chatTimeoutMs": 3500,
+    "maintenanceIntervalMs": 45000,
+    "refreshGuardMs": 20000,
+    "antiAfk": true,
+    "reconnectMinMs": 30000,
+    "reconnectMaxMs": 600000,
+    "scoreboardIntervalMs": 10000
+  },
+  "dataDir": "./data",
+  "debug": false
+}

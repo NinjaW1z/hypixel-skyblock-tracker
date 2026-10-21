@@ -1,0 +1,26 @@
+{
+  "name": "skyflip-bot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "SkyFlip autoflipper: a headless Minecraft client that buys, claims and relists flips from the SkyFlip feed",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node --enable-source-maps dist/main.js",
+    "dev": "tsc -p tsconfig.json && node --enable-source-maps dist/main.js",
+    "test": "tsc -p tsconfig.json && node --test \"dist/test/**/*.test.js\""
+  },
+  "dependencies": {
+    "mineflayer": "^4.25.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "@types/ws": "^8.18.0",
+    "minecraft-protocol": "^1.68.0",
+    "typescript": "^5.8.0"
+  }
+}

@@ -23,7 +23,7 @@ import java.util.function.DoubleConsumer;
  * (thresholds, filters) are sent to the backend when you press Apply or Add.
  */
 public final class SkyFlipScreen extends Screen {
-    private enum Tab { GENERAL, DISPLAY, SOUND, SERVER, FILTERS }
+    private enum Tab { GENERAL, DISPLAY, SOUND, SERVER, FILTERS, AUTOBUY }
 
     private final SkyFlipMod mod;
     private final FlipConfig cfg;
@@ -33,6 +33,7 @@ public final class SkyFlipScreen extends Screen {
     private boolean showWhitelist = false;
     private TextFieldWidget ruleField;
     private TextFieldWidget urlField, tokenField, minProfitField, minPercentField, purseField, minVolumeField;
+    private TextFieldWidget abMinProfitField, abMinPercentField, abMaxPriceField, abReserveField;
 
     private int left, colW;
     private static final int TOP = 56;
@@ -55,10 +56,10 @@ public final class SkyFlipScreen extends Screen {
         int x = left;
         for (Tab t : Tab.values()) {
             final Tab tt = t;
-            String label = t.name().charAt(0) + t.name().substring(1).toLowerCase(Locale.ROOT);
+            String label = t == Tab.AUTOBUY ? "Auto-buy" : t.name().charAt(0) + t.name().substring(1).toLowerCase(Locale.ROOT);
             addDrawableChild(ButtonWidget.builder(Text.literal((tab == t ? "§e" : "") + label), btn -> { tab = tt; filterPage = 0; rebuild(); })
-                .dimensions(x, 28, 80, 20).build());
-            x += 84;
+                .dimensions(x, 28, 68, 20).build());
+            x += 70;
         }
 
         switch (tab) {
@@ -67,6 +68,7 @@ public final class SkyFlipScreen extends Screen {
             case SOUND -> buildSound();
             case SERVER -> buildServer();
             case FILTERS -> buildFilters();
+            case AUTOBUY -> buildAutobuy();
         }
 
         addDrawableChild(ButtonWidget.builder(Text.literal("Bazaar"), b -> { mod.requestBazaar(10); close(); }).dimensions(left, height - 28, 70, 20).build());
@@ -183,6 +185,44 @@ public final class SkyFlipScreen extends Screen {
         }).dimensions(left, row(7) + 4, 120, 20).build());
     }
 
+    private void buildAutobuy() {
+        JsonObject s = mod.serverSettings();
+        JsonObject b = mod.botStatus();
+        JsonObject ab = s != null && s.has("autobuy") && s.get("autobuy").isJsonObject() ? s.getAsJsonObject("autobuy") : null;
+        JsonObject svc = b != null && b.has("service") && b.get("service").isJsonObject() ? b.getAsJsonObject("service") : null;
+        boolean loginOn = svc != null && svc.get("desired").getAsString().equals("on");
+        boolean autobuyOn = ab != null && ab.get("enabled").getAsBoolean();
+        addDrawableChild(CyclingButtonWidget.onOffBuilder(loginOn).build(colX(0), row(0), colW, 20, Text.literal("Login switch (bot service)"), (btn, v) -> { mod.botControl(v ? "login-on" : "login-off"); status = v ? "§estarting the bot service…" : "§estopping the bot service…"; }));
+        addDrawableChild(CyclingButtonWidget.onOffBuilder(autobuyOn).build(colX(1), row(0), colW, 20, Text.literal("Auto-buy switch (forward flips)"), (btn, v) -> { mod.botControl(v ? "autobuy-on" : "autobuy-off"); status = v ? "§aauto-buy on" : "§cauto-buy off"; }));
+        if (ab == null) return;
+        abMinProfitField = field(0, 2, "e.g. 500k", fmtCoins(ab.get("minProfit").getAsLong()), 16);
+        abMinPercentField = field(1, 2, "e.g. 8", String.valueOf(Math.round(ab.get("minProfitPercent").getAsDouble() * 100)), 8);
+        abMaxPriceField = field(0, 3, "0 = any", fmtCoins(ab.get("maxPrice").getAsLong()), 16);
+        abReserveField = field(1, 3, "e.g. 5m", fmtCoins(ab.get("purseReserve").getAsLong()), 16);
+        cycle(0, 4, "Max risk", List.of("LOW", "MEDIUM", "HIGH"), ab.get("maxRisk").getAsString(), v -> mod.serverSet("autobuyRisk", v));
+        cycle(1, 4, "Auto-sell", List.of("off", "on"), ab.get("autoSell").getAsBoolean() ? "on" : "off", v -> mod.serverSet("autoSell", v));
+        cycle(0, 5, "Require price history", List.of("off", "on"), ab.get("requireHistory").getAsBoolean() ? "on" : "off", v -> { JsonObject p = new JsonObject(); JsonObject a = new JsonObject(); a.addProperty("requireHistory", v.equals("on")); p.add("autobuy", a); JsonObject m = new JsonObject(); m.addProperty("type", "settings"); m.add("settings", p); mod.feed().send(m); });
+        JsonObject pc = s.has("pacing") && s.get("pacing").isJsonObject() ? s.getAsJsonObject("pacing") : null;
+        if (pc != null) {
+            cycle(1, 5, "Stealth pacing", List.of("off", "on"), pc.get("enabled").getAsBoolean() ? "on" : "off", v -> mod.serverSet("pacing", v));
+            cycle(0, 6, "Humanization breaks", List.of("off", "on"), pc.get("humanize").getAsBoolean() ? "on" : "off", v -> mod.serverSet("humanize", v));
+        }
+        addDrawableChild(ButtonWidget.builder(Text.literal("Apply thresholds"), b2 -> {
+            JsonObject patch = new JsonObject();
+            try {
+                patch.addProperty("minProfit", SkyFlipMod.parseCoins(abMinProfitField.getText()));
+                patch.addProperty("minProfitPercent", Double.parseDouble(abMinPercentField.getText().trim()) / 100.0);
+                patch.addProperty("maxPrice", SkyFlipMod.parseCoins(abMaxPriceField.getText()));
+                patch.addProperty("purseReserve", SkyFlipMod.parseCoins(abReserveField.getText()));
+            } catch (RuntimeException e) { status = "§cinvalid number"; return; }
+            JsonObject outer = new JsonObject(); outer.add("autobuy", patch);
+            JsonObject m = new JsonObject(); m.addProperty("type", "settings"); m.add("settings", outer);
+            mod.feed().send(m);
+            status = "§aauto-buy thresholds sent";
+        }).dimensions(left, row(7) + 4, 120, 20).build());
+        addDrawableChild(ButtonWidget.builder(Text.literal("Refresh"), b2 -> { mod.requestBotStatus(); status = "§7refreshing…"; }).dimensions(left + 124, row(7) + 4, 70, 20).build());
+    }
+
     private void buildFilters() {
         JsonObject s = mod.serverSettings();
         cycle(0, 0, "List", List.of("blacklist", "whitelist"), showWhitelist ? "whitelist" : "blacklist", v -> { showWhitelist = v.equals("whitelist"); filterPage = 0; rebuild(); });
@@ -252,6 +292,13 @@ public final class SkyFlipScreen extends Screen {
                 }
             }
             case SOUND -> ctx.drawTextWithShadow(textRenderer, Text.literal("§8Presets here; any vanilla id via /skyflip sound <id>. Ping plays above the General tab's threshold."), left, row(3) + 6, 0xFFFFFF);
+            case AUTOBUY -> {
+                ctx.drawTextWithShadow(textRenderer, Text.literal(mod.botSummary()), left, row(1) + 6, 0xFFFFFF);
+                if (mod.serverSettings() == null) { ctx.drawTextWithShadow(textRenderer, Text.literal("§7not connected: settings appear once the feed is connected"), left, row(2), 0xFFFFFF); break; }
+                label(ctx, 0, 2, "Min profit (auto-buy)"); label(ctx, 1, 2, "Min profit %");
+                label(ctx, 0, 3, "Max price per flip"); label(ctx, 1, 3, "Purse reserve");
+                ctx.drawTextWithShadow(textRenderer, Text.literal("§8Both switches are off by default. Nothing is bought unless login and auto-buy are both on. Against Hypixel's rules."), left, row(8) + 10, 0xFFFFFF);
+            }
             default -> { }
         }
         if (!status.isEmpty()) ctx.drawTextWithShadow(textRenderer, Text.literal(status), left, height - 44, 0xFFFFFF);
@@ -259,7 +306,12 @@ public final class SkyFlipScreen extends Screen {
 
     /** Called by the mod when server settings change so open tabs refresh. */
     public void onServerSettings() {
-        if (tab == Tab.FILTERS || tab == Tab.SERVER) MinecraftClient.getInstance().execute(this::rebuild);
+        if (tab == Tab.FILTERS || tab == Tab.SERVER || tab == Tab.AUTOBUY) MinecraftClient.getInstance().execute(this::rebuild);
+    }
+
+    /** Called by the mod when a bot status push arrives so the Auto-buy tab shows live switches. */
+    public void onBotStatus() {
+        if (tab == Tab.AUTOBUY && !(getFocused() instanceof TextFieldWidget)) MinecraftClient.getInstance().execute(this::rebuild);
     }
 
     public void setStatus(String s) { status = s; }

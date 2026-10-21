@@ -146,6 +146,48 @@
     $('#events').prepend(d);
   }
 
+  // ---- bot ----
+  let botState = null;
+  function renderBot(b) {
+    botState = b;
+    const svc = b.service || {}, br = b.bridge || {}, ab = b.autobuy || {}, pc = b.pacing || {};
+    const loginOn = svc.desired === 'on';
+    $('#loginState').textContent = svc.available === false ? 'not configured' : `${loginOn ? 'ON' : 'OFF'} · service ${svc.active || '?'}`;
+    $('#loginState').className = loginOn ? 'on' : 'off';
+    $('#loginSub').textContent = svc.pausedBy ? `stopped by ${svc.pausedBy}` : svc.lastError ? svc.lastError : loginOn ? 'The bot account logs in when the service is active.' : 'The bot process is stopped; the account is not logged in.';
+    $('#autobuyState').textContent = ab.enabled ? 'ON' : 'OFF';
+    $('#autobuyState').className = ab.enabled ? 'on' : 'off';
+    $('#autobuySub').textContent = ab.enabled ? `forwarding flips ≥ ${fmt(ab.minProfit)} / ${Math.round(ab.minProfitPercent * 100)}% · risk ≤ ${ab.maxRisk}${ab.maxPrice ? ' · ≤ ' + fmt(ab.maxPrice) : ''}${br.lastRejectReason ? ' · last skip: ' + br.lastRejectReason : ''}` : 'Flips are shown but not sent to the bot.';
+    $('#pacingState').textContent = pc.enabled ? `ON · ${pc.phase}${pc.phaseEndsAt ? ' until ' + new Date(pc.phaseEndsAt).toLocaleTimeString() : ''}` : 'off';
+    $('#pacingSub').textContent = pc.enabled ? `${Math.round((pc.onlineMsToday || 0) / 60000)} min online today${pc.dailyCapMinutes ? ' of ' + pc.dailyCapMinutes : ''}${pc.humanize ? ' · humanization on' : ''}` : 'Configure under Settings → Pacing.';
+    const card = (k, v, cls = '') => `<div class="card"><div class="v ${cls}">${v}</div><div class="k">${k}</div></div>`;
+    $('#botSummary').innerHTML = card('bots connected', (br.bots || []).length) + card('flips forwarded', br.flipsForwarded || 0) + card('flips skipped', br.flipsRejected || 0) + card('waiting to sell', (br.pending || []).length);
+    const tb = $('#bots tbody'); tb.innerHTML = '';
+    for (const x of br.bots || []) {
+      const tr = document.createElement('tr');
+      const inv = (x.inventory || []).filter((i) => i.name).map((i) => esc(i.name) + (i.count > 1 ? ' ×' + i.count : ''));
+      tr.innerHTML = `<td>${esc(x.player)}<div class="sub">${esc(x.uuid || 'resolving uuid…')}</div></td><td class="muted">${esc(x.version)}</td><td class="num">${x.purse != null ? fmt(x.purse) : '–'}${x.purseAt ? `<div class="sub">${ago(x.purseAt)} ago</div>` : ''}</td><td>${esc(x.location || '–')}</td><td class="num">${x.flipsSent}</td><td class="num">${x.buysLastHour}</td><td class="small">${inv.length ? inv.join(', ') : '<span class="muted">' + (x.inventoryAt ? 'empty' : 'not uploaded yet') + '</span>'}</td><td class="muted">${ago(x.lastSeen)} ago</td>`;
+      tb.appendChild(tr);
+    }
+    $('#botsEmpty').style.display = (br.bots || []).length ? 'none' : '';
+    const pb = $('#pendingSales tbody'); pb.innerHTML = '';
+    for (const p of br.pending || []) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${esc(p.itemName)}</td><td class="num">${fmt(p.cost)}</td><td class="num">${p.target ? fmt(p.target) : '–'}</td><td class="num">${p.lastPrice ? fmt(p.lastPrice) : '<span class="muted">not yet</span>'}</td><td class="num">${p.listings}</td><td class="muted">${esc(p.note || (p.lastListedAt ? 'listed ' + ago(p.lastListedAt) + ' ago' : 'waiting for the bot'))}</td>`;
+      pb.appendChild(tr);
+    }
+    const lg = $('#botLog'); lg.innerHTML = '';
+    for (const l of [...(br.log || [])].reverse()) { const d = document.createElement('div'); d.className = l.level; d.textContent = `${new Date(l.ts).toLocaleTimeString()} ${l.text}`; lg.appendChild(d); }
+  }
+  document.body.addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-bot]'); if (!b) return;
+    const action = b.dataset.bot;
+    if (action === 'login-on' && !confirm('Start the bot service? The bot account will log in to Hypixel. Automated purchasing is against Hypixel\'s rules.')) return;
+    if (action === 'autobuy-on' && !confirm('Forward flips to the bot for purchase?')) return;
+    send({ type: 'botControl', action });
+  });
+  $('#botCmdSend').addEventListener('click', () => { const t = $('#botCmd').value.trim(); if (!t) return; send({ type: 'botControl', action: 'execute', text: t }); $('#botCmd').value = ''; });
+
   // ---- status ----
   function renderStatus(s) {
     const stat = (label, value, title) => `<span class="stat" title="${esc(title)}"><span class="k">${label}</span><b>${value}</b></span>`;
@@ -158,7 +200,8 @@
       stat('Sales history', s.salesTracked.toLocaleString(), 'Sold auctions recorded in our own price history (the basis for MEDIAN flips). Grows every minute.') +
       stat('Coflnet prices', s.coflnet ? s.coflnet.cacheSize : 0, 'Item prices cached from the Coflnet API, used as a reference where our own history is still thin.') +
       stat('Bazaar flips', s.bazaarFlips || 0, 'Bazaar products with a positive order spread, before your filters.') +
-      stat('Clients', s.clients || 0, 'Connected browser tabs and mods.');
+      stat('Clients', s.clients || 0, 'Connected browser tabs and mods.') +
+      stat('Auto-buy', `${s.autobuy ? 'ON' : 'off'} · ${s.bots || 0} bot${s.bots === 1 ? '' : 's'}`, 'Purchase switch and connected bots. Login switch: ' + (s.botService || 'n/a'));
   }
 
   // ---- settings ----
@@ -185,6 +228,14 @@
     form.bzMaxPrice.value = s.bazaar.maxPrice;
     form.bzMinVolumeWeek.value = s.bazaar.minVolumeWeek;
     form.bzMaxRisk.value = s.bazaar.maxRisk;
+    const ab = s.autobuy || {}, pc = s.pacing || {};
+    form.abMinProfit.value = ab.minProfit; form.abMinProfitPercent.value = Math.round((ab.minProfitPercent || 0) * 100); form.abMaxPrice.value = ab.maxPrice; form.abMaxRisk.value = ab.maxRisk;
+    form.abPurseReserve.value = ab.purseReserve; form.abMaxBuysPerHour.value = ab.maxBuysPerHour; form.abBedDelayMs.value = ab.bedDelayMs;
+    form.abRequireHistory.checked = ab.requireHistory !== false; form.abRequireOwnHistory.checked = ab.requireOwnHistory === true; form.abAutoSell.checked = ab.autoSell !== false;
+    form.abUndercut.value = +((ab.undercutPercent || 0) * 100).toFixed(2); form.abListHours.value = ab.listHours; form.abWebhook.value = ab.webhookUrl || '';
+    form.pcEnabled.checked = pc.enabled === true; form.pcMinSession.value = pc.minSessionMinutes; form.pcMaxSession.value = pc.maxSessionMinutes; form.pcMinBreak.value = pc.minBreakMinutes; form.pcMaxBreak.value = pc.maxBreakMinutes;
+    form.pcDaily.value = pc.dailyOnlineMinutes; form.pcHumanize.checked = pc.humanize === true; form.pcHumanMinInterval.value = pc.humanMinIntervalMinutes; form.pcHumanMaxInterval.value = pc.humanMaxIntervalMinutes;
+    form.pcHumanMinBreak.value = pc.humanMinBreakMinutes; form.pcHumanMaxBreak.value = pc.humanMaxBreakMinutes;
   }
   form.addEventListener('submit', (e) => {
     e.preventDefault();
@@ -197,6 +248,13 @@
       maxRisk: form.maxRisk.value, kinds: { SNIPE: form.SNIPE.checked, MEDIAN: form.MEDIAN.checked }, whitelistOnly: form.whitelistOnly.checked,
       blacklist, whitelist,
       bazaar: { minProfitPerHour: Number(form.bzMinProfitPerHour.value), minProfitPercent: Number(form.bzMinProfitPercent.value) / 100, maxPrice: Number(form.bzMaxPrice.value), minVolumeWeek: Number(form.bzMinVolumeWeek.value), maxRisk: form.bzMaxRisk.value },
+      // The enabled switch itself is only changed from the Bot tab.
+      autobuy: { ...(settings.autobuy || {}), minProfit: Number(form.abMinProfit.value), minProfitPercent: Number(form.abMinProfitPercent.value) / 100, maxPrice: Number(form.abMaxPrice.value), maxRisk: form.abMaxRisk.value,
+        purseReserve: Number(form.abPurseReserve.value), maxBuysPerHour: Number(form.abMaxBuysPerHour.value), bedDelayMs: Number(form.abBedDelayMs.value), requireHistory: form.abRequireHistory.checked, requireOwnHistory: form.abRequireOwnHistory.checked,
+        autoSell: form.abAutoSell.checked, undercutPercent: Number(form.abUndercut.value) / 100, listHours: Number(form.abListHours.value), webhookUrl: form.abWebhook.value.trim() },
+      pacing: { enabled: form.pcEnabled.checked, minSessionMinutes: Number(form.pcMinSession.value), maxSessionMinutes: Number(form.pcMaxSession.value), minBreakMinutes: Number(form.pcMinBreak.value), maxBreakMinutes: Number(form.pcMaxBreak.value),
+        dailyOnlineMinutes: Number(form.pcDaily.value), humanize: form.pcHumanize.checked, humanMinIntervalMinutes: Number(form.pcHumanMinInterval.value), humanMaxIntervalMinutes: Number(form.pcHumanMaxInterval.value),
+        humanMinBreakMinutes: Number(form.pcHumanMinBreak.value), humanMaxBreakMinutes: Number(form.pcHumanMaxBreak.value) },
     };
     send({ type: 'settings', settings: patch });
     send({ type: 'bazaar', limit: 50 });
@@ -264,6 +322,7 @@
       if (m.type === 'hello') {
         ws.gotHello = true; settings = m.settings; fillForm(settings); renderStatus(m.status);
         flipsBody.innerHTML = ''; flips.length = 0; m.flips.forEach((f) => addFlip(f, false)); renderBazaar(m.bazaar || []); renderPacks(m.packs || []);
+        if (m.bot) renderBot(m.bot);
         fetch('/api/players' + (token ? `?token=${encodeURIComponent(token)}` : '')).then((r) => r.json()).then((ps) => { $('#players').innerHTML = ps.map((p) => `<option value="${p}">`).join(''); }).catch(() => {});
       }
       else if (m.type === 'flip') addFlip(m.flip, true);
@@ -274,6 +333,7 @@
       else if (m.type === 'purchase') { logEvent(`bought ${m.purchase.itemName} for ${fmt(m.purchase.price)}${m.flip ? ` (predicted +${fmt(m.flip.profit)})` : ''}`); }
       else if (m.type === 'sold') { logEvent(`sold ${m.purchase.itemName} for ${fmt(m.purchase.soldPrice)} (paid ${fmt(m.purchase.price)})`); }
       else if (m.type === 'import') renderImport(m.report);
+      else if (m.type === 'bot') renderBot(m.bot);
       else if (m.type === 'msg') { logEvent(m.text); if (/pack/.test(m.text)) $('#importMsg').textContent = m.text; }
     };
   }

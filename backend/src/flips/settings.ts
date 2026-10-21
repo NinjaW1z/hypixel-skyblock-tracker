@@ -89,6 +89,62 @@ export interface Settings {
   sound: boolean;
   /** Bazaar flip view defaults. */
   bazaar: { minProfitPerHour: number; minProfitPercent: number; maxPrice: number; minVolumeWeek: number; maxRisk: Risk };
+  /**
+   * Auto-buy: what the modsocket bridge forwards to connected bots. `enabled` is the purchase
+   * switch; off means nothing is forwarded even while a bot is logged in.
+   */
+  autobuy: AutobuySettings;
+  /** Stealth pacing: the backend starts/stops the bot service on a randomised schedule. */
+  pacing: PacingSettings;
+}
+
+export interface AutobuySettings {
+  enabled: boolean;
+  minProfit: number;
+  /** 0.08 = 8 %. */
+  minProfitPercent: number;
+  /** 0 = unlimited. */
+  maxPrice: number;
+  maxRisk: Risk;
+  /** Skip flips whose reference price came from nowhere (priceSource 'none'). */
+  requireHistory: boolean;
+  /** Also skip flips priced only from Coflnet's per-item median. */
+  requireOwnHistory: boolean;
+  autoSell: boolean;
+  /** List at target × (1 − undercut), never below cost × 1.03. */
+  undercutPercent: number;
+  listHours: number;
+  /** Never let a purchase take the purse below this (needs the bot's scoreboard upload). */
+  purseReserve: number;
+  /** Hypixel's grace period after a BIN is created ("bed"); purchaseAt = auction start + this. */
+  bedDelayMs: number;
+  /** Don't forward a flip whose auction was created more than this long ago. */
+  maxAgeMs: number;
+  /** Per bot. 0 = unlimited. */
+  maxBuysPerHour: number;
+  /** Discord webhook for buy/sell notifications (optional). */
+  webhookUrl: string;
+  /** Second phase: forward bazaar order flips (`bazaarFlip`) to bots that place bazaar orders (the Rust BAF does; ours ignores them). */
+  bazaarOrders: boolean;
+  /** Max coins per bazaar order. */
+  bazaarMaxOrder: number;
+}
+
+export interface PacingSettings {
+  /** Stealth session pacing: online spans and offline gaps, daily allowance. */
+  enabled: boolean;
+  minSessionMinutes: number;
+  maxSessionMinutes: number;
+  minBreakMinutes: number;
+  maxBreakMinutes: number;
+  /** 0 = no cap. */
+  dailyOnlineMinutes: number;
+  /** Humanization: short random breaks inside a session. */
+  humanize: boolean;
+  humanMinIntervalMinutes: number;
+  humanMaxIntervalMinutes: number;
+  humanMinBreakMinutes: number;
+  humanMaxBreakMinutes: number;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -104,6 +160,15 @@ export const DEFAULT_SETTINGS: Settings = {
   whitelistOnly: false,
   sound: true,
   bazaar: { minProfitPerHour: 200_000, minProfitPercent: 0.02, maxPrice: 0, minVolumeWeek: 5_000, maxRisk: 'MEDIUM' },
+  autobuy: {
+    enabled: false, minProfit: 500_000, minProfitPercent: 0.08, maxPrice: 0, maxRisk: 'LOW', requireHistory: true, requireOwnHistory: false,
+    autoSell: true, undercutPercent: 0.02, listHours: 48, purseReserve: 0, bedDelayMs: 20_000, maxAgeMs: 60_000, maxBuysPerHour: 0, webhookUrl: '',
+    bazaarOrders: false, bazaarMaxOrder: 5_000_000,
+  },
+  pacing: {
+    enabled: false, minSessionMinutes: 60, maxSessionMinutes: 300, minBreakMinutes: 30, maxBreakMinutes: 180, dailyOnlineMinutes: 600,
+    humanize: false, humanMinIntervalMinutes: 45, humanMaxIntervalMinutes: 120, humanMinBreakMinutes: 2, humanMaxBreakMinutes: 10,
+  },
 };
 
 const RISK_RANK: Record<Risk, number> = { LOW: 0, MEDIUM: 1, HIGH: 2 };
@@ -198,6 +263,8 @@ export class SettingsStore {
       ...patch,
       kinds: { ...this.current.kinds, ...(patch.kinds ?? {}) },
       bazaar: { ...this.current.bazaar, ...(patch.bazaar ?? {}) },
+      autobuy: { ...this.current.autobuy, ...(patch.autobuy ?? {}) },
+      pacing: { ...this.current.pacing, ...(patch.pacing ?? {}) },
     };
     this.current = sanitize(merged);
     this.persist();
@@ -239,7 +306,27 @@ export class SettingsStore {
       }
       case 'whitelistonly': this.update({ whitelistOnly: bool }); return;
       case 'sound': this.update({ sound: bool }); return;
-      default: return `unknown setting "${key}"; try minProfit, minProfitPercent, maxPrice, minVolume, maxKeyTier, maxRisk, mode, whitelistOnly`;
+      // ---- auto-buy ----
+      case 'autobuy': this.update({ autobuy: { ...this.current.autobuy, enabled: bool } as AutobuySettings }); return;
+      case 'autobuyminprofit': this.update({ autobuy: { ...this.current.autobuy, minProfit: num } as AutobuySettings }); return;
+      case 'autobuyminpercent': case 'autobuyminprofitpercent': this.update({ autobuy: { ...this.current.autobuy, minProfitPercent: num > 1 ? num / 100 : num } as AutobuySettings }); return;
+      case 'autobuymaxprice': case 'autobuypurse': this.update({ autobuy: { ...this.current.autobuy, maxPrice: num } as AutobuySettings }); return;
+      case 'autobuyreserve': case 'autobuypursereserve': this.update({ autobuy: { ...this.current.autobuy, purseReserve: num } as AutobuySettings }); return;
+      case 'autobuyrisk': case 'autobuymaxrisk': {
+        const r = value.toUpperCase();
+        if (r !== 'LOW' && r !== 'MEDIUM' && r !== 'HIGH') return 'risk must be LOW, MEDIUM or HIGH';
+        this.update({ autobuy: { ...this.current.autobuy, maxRisk: r } as AutobuySettings }); return;
+      }
+      case 'autosell': this.update({ autobuy: { ...this.current.autobuy, autoSell: bool } as AutobuySettings }); return;
+      case 'autobuyundercut': this.update({ autobuy: { ...this.current.autobuy, undercutPercent: num > 1 ? num / 100 : num } as AutobuySettings }); return;
+      case 'autobuylisthours': case 'listhours': this.update({ autobuy: { ...this.current.autobuy, listHours: num } as AutobuySettings }); return;
+      case 'autobuybeddelay': this.update({ autobuy: { ...this.current.autobuy, bedDelayMs: num } as AutobuySettings }); return;
+      case 'autobuyperhour': case 'autobuymaxbuysperhour': this.update({ autobuy: { ...this.current.autobuy, maxBuysPerHour: num } as AutobuySettings }); return;
+      case 'webhook': case 'autobuywebhook': this.update({ autobuy: { ...this.current.autobuy, webhookUrl: /^(off|none|-)$/i.test(value) ? '' : value.trim() } as AutobuySettings }); return;
+      case 'bazaarorders': case 'autobazaar': this.update({ autobuy: { ...this.current.autobuy, bazaarOrders: bool } as AutobuySettings }); return;
+      case 'pacing': case 'stealth': this.update({ pacing: { ...this.current.pacing, enabled: bool } as PacingSettings }); return;
+      case 'humanize': case 'humanization': this.update({ pacing: { ...this.current.pacing, humanize: bool } as PacingSettings }); return;
+      default: return `unknown setting "${key}"; try minProfit, minProfitPercent, maxPrice, minVolume, maxKeyTier, maxRisk, mode, whitelistOnly, autobuy, autobuyMinProfit, autobuyMinPercent, autobuyMaxPrice, autobuyRisk, autobuyReserve, autoSell, autobuyUndercut, listHours, webhook, pacing, humanize`;
     }
   }
 
@@ -294,6 +381,8 @@ export function sanitize(raw: unknown): Settings {
   const s = (raw && typeof raw === 'object' ? raw : {}) as Partial<Settings> & Record<string, unknown>;
   const kinds = (s.kinds ?? {}) as Partial<Settings['kinds']>;
   const bz = (s.bazaar ?? {}) as Partial<Settings['bazaar']>;
+  const ab = (s.autobuy ?? {}) as Partial<AutobuySettings>;
+  const pc = (s.pacing ?? {}) as Partial<PacingSettings>;
   const D = DEFAULT_SETTINGS;
   return {
     minProfit: n(s.minProfit, D.minProfit),
@@ -313,6 +402,38 @@ export function sanitize(raw: unknown): Settings {
       maxPrice: n(bz.maxPrice, 0),
       minVolumeWeek: n(bz.minVolumeWeek, D.bazaar.minVolumeWeek),
       maxRisk: risk(bz.maxRisk, D.bazaar.maxRisk),
+    },
+    autobuy: {
+      enabled: ab.enabled === true,
+      minProfit: n(ab.minProfit, D.autobuy.minProfit),
+      minProfitPercent: n(ab.minProfitPercent, D.autobuy.minProfitPercent),
+      maxPrice: n(ab.maxPrice, 0),
+      maxRisk: risk(ab.maxRisk, D.autobuy.maxRisk),
+      requireHistory: ab.requireHistory !== false,
+      requireOwnHistory: ab.requireOwnHistory === true,
+      autoSell: ab.autoSell !== false,
+      undercutPercent: Math.min(0.5, n(ab.undercutPercent, D.autobuy.undercutPercent)),
+      listHours: Math.max(1, Math.min(336, Math.floor(n(ab.listHours, D.autobuy.listHours, 1)))),
+      purseReserve: n(ab.purseReserve, 0),
+      bedDelayMs: n(ab.bedDelayMs, D.autobuy.bedDelayMs),
+      maxAgeMs: n(ab.maxAgeMs, D.autobuy.maxAgeMs, 1_000),
+      maxBuysPerHour: Math.floor(n(ab.maxBuysPerHour, 0)),
+      webhookUrl: typeof ab.webhookUrl === 'string' && /^https:\/\//.test(ab.webhookUrl) ? ab.webhookUrl.trim() : '',
+      bazaarOrders: ab.bazaarOrders === true,
+      bazaarMaxOrder: n(ab.bazaarMaxOrder, D.autobuy.bazaarMaxOrder),
+    },
+    pacing: {
+      enabled: pc.enabled === true,
+      minSessionMinutes: n(pc.minSessionMinutes, D.pacing.minSessionMinutes, 1),
+      maxSessionMinutes: n(pc.maxSessionMinutes, D.pacing.maxSessionMinutes, 1),
+      minBreakMinutes: n(pc.minBreakMinutes, D.pacing.minBreakMinutes, 1),
+      maxBreakMinutes: n(pc.maxBreakMinutes, D.pacing.maxBreakMinutes, 1),
+      dailyOnlineMinutes: n(pc.dailyOnlineMinutes, D.pacing.dailyOnlineMinutes),
+      humanize: pc.humanize === true,
+      humanMinIntervalMinutes: n(pc.humanMinIntervalMinutes, D.pacing.humanMinIntervalMinutes, 1),
+      humanMaxIntervalMinutes: n(pc.humanMaxIntervalMinutes, D.pacing.humanMaxIntervalMinutes, 1),
+      humanMinBreakMinutes: n(pc.humanMinBreakMinutes, D.pacing.humanMinBreakMinutes, 1),
+      humanMaxBreakMinutes: n(pc.humanMaxBreakMinutes, D.pacing.humanMaxBreakMinutes, 1),
     },
   };
 }

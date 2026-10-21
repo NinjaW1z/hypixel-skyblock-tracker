@@ -110,6 +110,17 @@ export class Store {
     this.insFlip.run(f.uuid, f.detectedAt, f.itemId, f.price, f.target, f.profit, f.kind, JSON.stringify(f));
   }
 
+  loadFlip(uuid: string): Flip | undefined {
+    const r = this.db.prepare('SELECT json FROM flips WHERE uuid = ?').get(uuid) as { json: string } | undefined;
+    if (!r) return undefined;
+    try { return JSON.parse(r.json) as Flip; } catch { return undefined; }
+  }
+  /** Unsold purchases of a player, oldest first. */
+  openPurchases(player: string, since: number): Purchase[] {
+    const rows = this.db.prepare('SELECT * FROM purchases WHERE player = ? AND bought_at >= ? AND sold_at IS NULL ORDER BY bought_at ASC').all(player, since) as unknown as PurchaseRow[];
+    return rows.map(rowToPurchase);
+  }
+
   pruneSales(olderThan: number): number {
     const r = this.db.prepare('DELETE FROM sales WHERE ts < ?').run(olderThan);
     return Number(r.changes);

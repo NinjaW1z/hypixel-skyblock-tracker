@@ -66,6 +66,9 @@ export class ProfitTracker extends EventEmitter {
 
   get trackedPlayers(): string[] { return [...this.players]; }
 
+  /** The flip we predicted for an auction, if we flagged it. */
+  flipFor(auctionId: string): Flip | undefined { return this.flagged.get(auctionId); }
+
   /** Remember what we predicted so a purchase can be compared to it later. */
   rememberFlip(f: Flip): void {
     this.flagged.set(f.uuid, f);

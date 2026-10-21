@@ -14,6 +14,7 @@
       <button data-tab="flips" class="active">Flips</button>
       <button data-tab="bazaar">Bazaar</button>
       <button data-tab="profit">Profit</button>
+      <button data-tab="bot">Bot</button>
       <button data-tab="settings">Settings</button>
     </nav>
     <div class="right">
@@ -77,6 +78,26 @@
     <div id="events" class="events"></div>
   </section>
 
+  <section id="tab-bot" class="tab hidden">
+    <div class="toolbar">
+      <span class="muted">Two switches, both off by default. <b>Login</b> starts or stops the bot service on this server (the account logs in or out). <b>Auto-buy</b> decides whether flips are forwarded to a logged-in bot. Nothing is bought unless both are on.</span>
+    </div>
+    <div class="switches">
+      <div class="switch" id="swLogin"><div class="k">Login switch <span class="muted">(skyflip-bot service)</span></div><div class="v"><b id="loginState">–</b> <button class="small" data-bot="login-on">Turn on</button> <button class="small" data-bot="login-off">Turn off</button></div><div class="sub" id="loginSub"></div></div>
+      <div class="switch" id="swAutobuy"><div class="k">Auto-buy switch <span class="muted">(forward flips)</span></div><div class="v"><b id="autobuyState">–</b> <button class="small" data-bot="autobuy-on">Turn on</button> <button class="small" data-bot="autobuy-off">Turn off</button></div><div class="sub" id="autobuySub"></div></div>
+      <div class="switch"><div class="k">Pacing <span class="muted">(stealth sessions)</span></div><div class="v"><b id="pacingState">–</b></div><div class="sub" id="pacingSub">Configure under Settings → Auto-buy.</div></div>
+    </div>
+    <div id="botSummary" class="cards"></div>
+    <h3>Connected bots</h3>
+    <table id="bots"><thead><tr><th>Player</th><th>Version</th><th>Purse</th><th>Location</th><th class="num">Flips sent</th><th class="num">Buys/h</th><th>Inventory</th><th>Seen</th></tr></thead><tbody></tbody></table>
+    <p id="botsEmpty" class="muted">No bot connected. The bot connects to <code>ws://&lt;this host&gt;:3131/modsocket/&lt;token&gt;</code>; see the Auto-flipper section of the README.</p>
+    <h3>Waiting to be listed / sold</h3>
+    <table id="pendingSales"><thead><tr><th>Item</th><th class="num">Cost</th><th class="num">Target</th><th class="num">Listed for</th><th class="num">Listings</th><th>Note</th></tr></thead><tbody></tbody></table>
+    <div class="row"><button class="small" data-bot="inventory">Refresh inventories</button> <button class="small" data-bot="status">Refresh status</button> <input id="botCmd" placeholder="console command for the bot (execute), e.g. claim, pause, resume, /is"> <button class="small" id="botCmdSend">Send</button></div>
+    <h3>Bot log</h3>
+    <div id="botLog" class="events"></div>
+  </section>
+
   <section id="tab-settings" class="tab hidden">
     <form id="settingsForm">
       <fieldset>
@@ -98,6 +119,32 @@
         <label>Max unit price (0 = any) <input name="bzMaxPrice" type="number" min="0" step="1000"></label>
         <label>Min weekly volume <input name="bzMinVolumeWeek" type="number" min="0" step="100"></label>
         <label>Max risk <select name="bzMaxRisk"><option>LOW</option><option>MEDIUM</option><option>HIGH</option></select></label>
+      </fieldset>
+      <fieldset>
+        <legend>Auto-buy (what gets forwarded to the bot)</legend>
+        <label>Min profit <input name="abMinProfit" type="number" min="0" step="10000"></label>
+        <label>Min profit % <input name="abMinProfitPercent" type="number" min="0" step="1"></label>
+        <label>Max price per flip (0 = any) <input name="abMaxPrice" type="number" min="0" step="100000"></label>
+        <label>Max risk <select name="abMaxRisk"><option>LOW</option><option>MEDIUM</option><option>HIGH</option></select></label>
+        <label>Purse reserve (never spend below) <input name="abPurseReserve" type="number" min="0" step="100000"></label>
+        <label>Max buys per hour (0 = any) <input name="abMaxBuysPerHour" type="number" min="0" step="1"></label>
+        <label>Bed delay ms (grace period after listing) <input name="abBedDelayMs" type="number" min="0" step="500"></label>
+        <label class="chk"><input name="abRequireHistory" type="checkbox"> Require a price reference</label>
+        <label class="chk"><input name="abRequireOwnHistory" type="checkbox"> Require our own sales history (no Coflnet-only)</label>
+        <label class="chk"><input name="abAutoSell" type="checkbox"> Auto-sell bought items</label>
+        <label>Undercut % below target <input name="abUndercut" type="number" min="0" step="0.5"></label>
+        <label>Listing duration (hours) <input name="abListHours" type="number" min="1" max="336" step="1"></label>
+        <label>Discord webhook (optional) <input name="abWebhook" type="url" placeholder="https://discord.com/api/webhooks/…"></label>
+      </fieldset>
+      <fieldset>
+        <legend>Pacing &amp; humanization (off by default)</legend>
+        <label class="chk"><input name="pcEnabled" type="checkbox"> Stealth pacing: online spans with offline gaps</label>
+        <label>Session minutes (min–max) <span class="pair"><input name="pcMinSession" type="number" min="1"> <input name="pcMaxSession" type="number" min="1"></span></label>
+        <label>Break minutes (min–max) <span class="pair"><input name="pcMinBreak" type="number" min="1"> <input name="pcMaxBreak" type="number" min="1"></span></label>
+        <label>Daily online minutes (0 = no cap) <input name="pcDaily" type="number" min="0"></label>
+        <label class="chk"><input name="pcHumanize" type="checkbox"> Humanization: short random breaks</label>
+        <label>Break every (min–max minutes) <span class="pair"><input name="pcHumanMinInterval" type="number" min="1"> <input name="pcHumanMaxInterval" type="number" min="1"></span></label>
+        <label>Break length (min–max minutes) <span class="pair"><input name="pcHumanMinBreak" type="number" min="1"> <input name="pcHumanMaxBreak" type="number" min="1"></span></label>
       </fieldset>
       <fieldset class="wide">
         <legend>Starter packs &amp; Coflnet import</legend>

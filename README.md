@@ -5,9 +5,11 @@ latency the public API allows, plus a Fabric mod that puts the flips in your cha
 `/viewauction`.
 
 ```
-backend/   Node 22 + TypeScript: ingestion, pricing, flip detection, bazaar flips, profit tracking, web UI, WebSocket feed
-mod/       Fabric 1.21.1 client mod: chat feed, keybinds, /skyflip commands
-deploy/    One-command install for an Oracle Cloud (or any Linux) instance, systemd unit, optional HTTPS
+backend/   Node 22 + TypeScript: ingestion, pricing, flip detection, bazaar flips, profit tracking, web UI, WebSocket feed,
+           modsocket bridge for auto-buy bots, login/purchase switches, stealth pacing
+bot/       The auto-flipper: a headless Minecraft client (mineflayer) that buys, claims and relists what the bridge sends
+mod/       Fabric 1.21.1 client mod: chat feed, keybinds, /skyflip commands, settings GUI with an Auto-buy tab
+deploy/    One-command install for an Oracle Cloud (or any Linux) instance, systemd units, optional HTTPS
 ```
 
 ## Feature map against Coflnet Premium+
@@ -25,6 +27,7 @@ deploy/    One-command install for an Oracle Cloud (or any Linux) instance, syst
 | Bazaar flipper | Yes. Order-spread flips with weekly volume, tax, profit per hour and risk. `/skyflip bazaar [n]` and the Bazaar tab. Craft flips are not included yet. |
 | Website | Yes. Flips, Bazaar, Profit and Settings tabs, token protected, usable from a phone when hosted on your server. |
 | Multiple accounts | Yes. Every connected mod identifies its own player; the backend tracks all of them. |
+| Auto-flipper (BAF-style auto-buy + auto-sell) | Yes, opt-in: see [Auto-flipper](#auto-flipper). The backend speaks the Coflnet/BAF modsocket protocol, so either the bundled `bot/` or a BAF build can do the buying. Off by default behind two switches. |
 
 ## How it works
 
@@ -51,9 +54,10 @@ deploy/    One-command install for an Oracle Cloud (or any Linux) instance, syst
 6. **Fees.** Profit is after Hypixel's BIN listing fee (1/2/3 %) and the 1 % collection tax.
 
 What this does **not** do: pre-API flips (Coflnet sees some listings before the public API via
-its mod users' in-game data; that is a network effect, not something one install can replicate),
-and anything that buys for you. Both the web UI and the mod only hand you the `/viewauction`
-command; the purchase is your click.
+its mod users' in-game data; that is a network effect, not something one install can replicate).
+The web UI and the mod only hand you the `/viewauction` command; the purchase is your click.
+Automated purchasing exists as a separate, opt-in component (the [Auto-flipper](#auto-flipper))
+that runs on a different account and is off until you turn it on.
 
 ## Run on your server (recommended)
 
@@ -170,8 +174,57 @@ backend runs on another machine.
   time from visibility to flip, which is one page-0 download (~2 MB gzipped) plus a few
   milliseconds of diffing. The log's per-flip `lag` includes both.
 
+## Auto-flipper
+
+The auto-flipper buys flips, claims them, relists them and claims the coins without anyone at the
+keyboard. **This is automated purchasing and is against Hypixel's rules; accounts doing it get
+banned. Run it only on an account you accept losing.** Nothing in this component runs until you
+turn it on, and it is split into two switches that both default to off:
+
+| Switch | What it does | Where |
+|---|---|---|
+| **Login** | Starts/stops the `skyflip-bot` systemd service, i.e. whether the bot account is logged in at all. | Website → Bot tab, `/skyflip bot on\|off`, `POST /api/bot/start\|stop` |
+| **Auto-buy** | Whether the backend forwards flips to a logged-in bot. Off = the bot sits there and buys nothing. | Website → Bot tab, `/skyflip autobuy on\|off`, `set autobuy on\|off` |
+
+How it fits together:
+
+- The backend exposes a **modsocket bridge** at `ws://host:3131/modsocket/<SKYFLIP_TOKEN>` that
+  speaks the Coflnet/BAF wire protocol (`{type, data}` frames: `flip`, `createAuction`,
+  `getInventory`, `chatMessage`, `execute`; the bot answers `uploadInventory`,
+  `uploadScoreboard`, `report`, `clientError`). The bundled `bot/` speaks it, and so does
+  BAF-style software, so you can point either at it.
+- Flips are gated by the **Auto-buy settings** (Settings tab or `set autobuy…`): min profit and
+  percent, max price, max risk, price-reference requirements, purse reserve (from the bot's
+  scoreboard upload), buys per hour, and the bed delay (`purchaseAt` = auction start + delay;
+  tune `autobuyBedDelay` from the bot's "clicked N times on the bed" log lines).
+- **Selling** is driven by the backend: when the ended-auction feed shows the bot bought
+  something, it asks for the inventory, finds the item by its NBT uuid and sends
+  `createAuction` at `target × (1 − undercut)`, never below cost × 1.03; expired items are
+  relisted 5 % lower each time. Sales show up in the Profit tab like any other.
+- **Pacing** (Settings → Pacing, off by default) stops and starts the bot service on randomised
+  online spans, offline gaps and a daily allowance (BAF's `stealth_*`), plus optional short
+  humanization breaks. State is persisted so a restart does not reset the day.
+- **Discord webhook** (Settings → Auto-buy) posts buys, sells and bot connects.
+- **Bazaar orders** (second phase): `set bazaarOrders on` forwards the top bazaar order flips as
+  `bazaarFlip` messages in the shape the Rust BAF reads. The bundled bot ignores them.
+
+Install on the instance that already runs the backend (full walkthrough in
+[deploy/README.md](deploy/README.md#auto-flipper)):
+
+```bash
+sudo /opt/skyflip/deploy/update.sh            # get this version
+sudo bash /opt/skyflip/deploy/install-bot.sh  # bot user, unit (disabled), sudoers rule, /etc/skyflip/bot.env
+```
+
+Then follow the printed steps: put the bot account's e-mail into `/etc/skyflip/bot.env`, do the
+one-time interactive Microsoft sign-in, and flip the two switches when you are ready. Watch it
+with `sudo journalctl -u skyflip-bot -f` and in the website's Bot tab (bots, purse, inventory,
+queue, log). The bot's own options (purse reserve, buys per cycle, auction slots, timings) are
+in `/etc/skyflip/bot-config.json`; see [bot/README.md](bot/README.md).
+
 ## Rules
 
 Hypixel allows mods that display information and run a command on your click or key press. It
-does not allow automated purchasing, auto-clicking the confirm button, or macros. This project
-stays on the allowed side; do not add auto-buy.
+does not allow automated purchasing, auto-clicking the confirm button, or macros. The feed, the
+website and the Fabric mod stay on the allowed side. The auto-flipper does not: it is a separate
+component, off by default, that you enable knowingly on an account you can afford to lose.

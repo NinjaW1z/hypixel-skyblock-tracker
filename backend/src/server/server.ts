@@ -11,6 +11,9 @@ import type { ProfitTracker, Purchase } from '../flips/tracker.js';
 import type { ItemNames } from '../hypixel/items.js';
 import { parseCoflnetExport, applyImport } from '../flips/coflnetImport.js';
 import { readdirSync } from 'node:fs';
+import type { ModSocketBridge } from './modsocket.js';
+import type { BotService } from '../bot/service.js';
+import type { PacingScheduler } from '../bot/pacing.js';
 
 export interface Status {
   startedAt: number;
@@ -34,6 +37,12 @@ export interface Status {
   coflnet: { requests: number; errors: number; cacheSize: number; queueSize: number; rateLimited: number };
   trackedPlayers: number;
   clients: number;
+  /** Purchase switch. */
+  autobuy: boolean;
+  /** Connected auto-buy bots. */
+  bots: number;
+  /** Login switch + systemd state, e.g. "on/active". */
+  botService: string;
 }
 
 export interface ServerDeps {
@@ -47,6 +56,10 @@ export interface ServerDeps {
   token?: string;
   /** Directory of starter rule packs (*.json). */
   packsDir?: string;
+  /** Auto-buy: the modsocket bridge bots connect to, the login switch and the pacing scheduler. */
+  bridge?: ModSocketBridge;
+  botService?: BotService;
+  pacing?: PacingScheduler;
 }
 
 const MIME: Record<string, string> = {
@@ -62,7 +75,9 @@ interface ClientMsg {
   key?: string;
   value?: string;
   list?: 'blacklist' | 'whitelist';
-  action?: 'add' | 'remove' | 'list';
+  action?: string;
+  text?: string;
+  role?: string;
   rule?: Rule;
   item?: string;
   limit?: number;
@@ -87,11 +102,13 @@ export class FeedServer {
       startedAt: Date.now(), apiLastUpdated: 0, detectLagMs: 0, fetchMs: 0, intervalMs: 0, pages: 0, totalAuctions: 0, newAuctions: 0,
       flipsThisCycle: 0, flipsTotal: 0, salesTracked: 0, salesKeys: 0, lowestBinKeys: 0, requests: 0, bytesIn: 0, cycles: 0,
       bazaarLastUpdated: 0, bazaarFlips: 0, coflnet: { requests: 0, errors: 0, cacheSize: 0, queueSize: 0, rateLimited: 0 }, trackedPlayers: 0, clients: 0,
+      autobuy: d.settings.current.autobuy.enabled, bots: 0, botService: 'off',
     };
     const server = createServer((req, res) => this.handleHttp(req, res));
     this.wss = new WebSocketServer({ noServer: true });
     server.on('upgrade', (req, socket, head) => {
       const url = new URL(req.url ?? '/', 'http://x');
+      if (d.bridge && d.bridge.handleUpgrade(req, socket, head, url.pathname)) return;
       if (url.pathname !== '/ws') { socket.destroy(); return; }
       if (!this.authorized(req, url)) {
         socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');
@@ -107,6 +124,10 @@ export class FeedServer {
       this.status.bazaarFlips = d.bazaar!.all().length;
       this.broadcast({ type: 'bazaar', flips: this.bazaarTop(30) });
     });
+    d.bridge?.on('status', () => this.pushBot());
+    d.bridge?.on('log', () => this.pushBot());
+    d.botService?.on('change', () => this.pushBot());
+    d.settings.onChange(() => this.pushBot());
     d.tracker.on('purchase', (p: Purchase, flip?: Flip) => this.sendToPlayer(p.player, { type: 'purchase', purchase: p, flip }));
     d.tracker.on('sold', (p: Purchase) => this.sendToPlayer(p.player, { type: 'sold', purchase: p }));
     server.listen(d.port, () => log.info(`web UI + feed on http://localhost:${d.port}  (ws://localhost:${d.port}/ws)${d.token ? ' · token required' : ' · no token (set SKYFLIP_TOKEN before exposing this)'}`));
@@ -123,7 +144,50 @@ export class FeedServer {
   publishStatus(): void {
     this.status.clients = this.clients;
     this.status.trackedPlayers = this.d.tracker.trackedPlayers.length;
+    this.status.autobuy = this.d.settings.current.autobuy.enabled;
+    this.status.bots = this.d.bridge?.connectedBots.length ?? 0;
+    const svc = this.d.botService?.status();
+    this.status.botService = svc ? `${svc.desired}/${svc.active}${svc.pausedBy ? ' (paused by pacing)' : ''}` : 'n/a';
     this.broadcast({ type: 'status', status: this.status });
+  }
+
+  /** Everything the Bot tab and the mod's /skyflip bot need in one object. */
+  botStatus(): unknown {
+    return {
+      autobuy: this.d.settings.current.autobuy,
+      pacingSettings: this.d.settings.current.pacing,
+      bridge: this.d.bridge?.status(),
+      service: this.d.botService?.status(),
+      pacing: this.d.pacing?.status(),
+      ts: Date.now(),
+    };
+  }
+  private botPushTimer?: NodeJS.Timeout;
+  private pushBot(): void {
+    if (this.botPushTimer) return;
+    this.botPushTimer = setTimeout(() => { this.botPushTimer = undefined; this.broadcast({ type: 'bot', bot: this.botStatus() }); }, 300);
+  }
+
+  /** Bot switches shared by the WebSocket and REST paths. */
+  private async botControl(action: string, text?: string): Promise<{ ok: boolean; text: string }> {
+    switch (action) {
+      case 'login-on': case 'start': {
+        if (!this.d.botService) return { ok: false, text: 'bot service control is not configured' };
+        const s = await this.d.botService.setDesired(true);
+        return { ok: !s.lastError, text: s.lastError ?? `bot login switch ON (service ${s.active})` };
+      }
+      case 'login-off': case 'stop': {
+        if (!this.d.botService) return { ok: false, text: 'bot service control is not configured' };
+        const s = await this.d.botService.setDesired(false);
+        return { ok: !s.lastError, text: s.lastError ?? `bot login switch OFF (service ${s.active})` };
+      }
+      case 'autobuy-on': this.d.settings.update({ autobuy: { ...this.d.settings.current.autobuy, enabled: true } }); return { ok: true, text: 'auto-buy ON: flips are forwarded to connected bots' };
+      case 'autobuy-off': this.d.settings.update({ autobuy: { ...this.d.settings.current.autobuy, enabled: false } }); return { ok: true, text: 'auto-buy OFF: nothing is forwarded' };
+      case 'inventory': this.d.bridge?.execute('inventory'); for (const b of this.d.bridge?.connectedBots ?? []) b.ws.send(JSON.stringify({ type: 'getInventory', data: '' })); return { ok: true, text: 'inventory requested' };
+      case 'execute': if (!text) return { ok: false, text: 'nothing to run' }; this.d.bridge?.execute(text); return { ok: true, text: `sent to bots: ${text}` };
+      case 'chat': if (!text) return { ok: false, text: 'nothing to say' }; this.d.bridge?.broadcastChat(text); return { ok: true, text: 'sent' };
+      case 'status': default: return { ok: true, text: 'status' };
+    }
   }
 
   // ---- auth ----
@@ -141,7 +205,7 @@ export class FeedServer {
   private onConnection(ws: WebSocket): void {
     ws.send(JSON.stringify({
       type: 'hello', settings: this.d.settings.current, status: this.status, flips: this.recent.slice(-50), bazaar: this.bazaarTop(30),
-      tokenRequired: Boolean(this.d.token), packs: this.listPacks(),
+      tokenRequired: Boolean(this.d.token), packs: this.listPacks(), bot: this.botStatus(),
     }));
     ws.on('message', (data) => {
       let msg: ClientMsg;
@@ -192,6 +256,15 @@ export class FeedServer {
         return;
       }
       case 'ping': this.send(ws, { type: 'pong', t: Date.now() }); return;
+      case 'bot': this.send(ws, { type: 'bot', bot: this.botStatus(), requested: true }); return;
+      case 'botControl': {
+        void this.botControl(m.action ?? 'status', m.text).then((r) => {
+          this.send(ws, { type: 'msg', level: r.ok ? 'info' : 'error', text: r.text });
+          this.send(ws, { type: 'bot', bot: this.botStatus(), requested: m.action === 'status' });
+          this.pushBot();
+        });
+        return;
+      }
       default: return;
     }
   }
@@ -286,6 +359,16 @@ export class FeedServer {
         return json(200, this.d.tracker.summary(uuid, Number(url.searchParams.get('days') ?? 7) * 86_400_000));
       }
       case '/api/players': return json(200, this.d.tracker.trackedPlayers);
+      case '/api/bot': case '/api/bot/status': return json(200, this.botStatus());
+      case '/api/bot/start': case '/api/bot/stop':
+        if (req.method !== 'POST') break;
+        return void this.botControl(url.pathname.endsWith('start') ? 'login-on' : 'login-off').then((r) => { this.pushBot(); json(r.ok ? 200 : 500, { ok: r.ok, message: r.text, bot: this.botStatus() }); });
+      case '/api/bot/autobuy':
+        if (req.method !== 'POST') break;
+        return readBody((b) => { const on = Boolean((b as { enabled?: boolean }).enabled); void this.botControl(on ? 'autobuy-on' : 'autobuy-off').then((r) => { this.pushBot(); json(200, { ok: r.ok, message: r.text, bot: this.botStatus() }); }); });
+      case '/api/bot/control':
+        if (req.method !== 'POST') break;
+        return readBody((b) => { const o = b as { action?: string; text?: string }; void this.botControl(o.action ?? 'status', o.text).then((r) => { this.pushBot(); json(r.ok ? 200 : 400, { ok: r.ok, message: r.text, bot: this.botStatus() }); }); });
       case '/api/packs':
         if (req.method === 'GET') return json(200, this.listPacks());
         return readBody((b) => { const o = b as { pack?: string; mode?: 'merge' | 'replace' }; const r = this.loadPack(o.pack ?? url.searchParams.get('pack') ?? '', o.mode ?? (url.searchParams.get('mode') as 'merge' | 'replace') ?? 'merge'); json(r.ok ? 200 : 400, { ok: r.ok, message: r.text, settings: this.d.settings.current }); });

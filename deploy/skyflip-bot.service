@@ -1,0 +1,35 @@
+[Unit]
+Description=SkyFlip auto-flipper bot (buys and relists flips on Hypixel SkyBlock)
+Documentation=https://github.com/ninjaw1z/hypixel-skyblock-tracker
+After=network-online.target skyflip.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=skyflip-bot
+Group=skyflip-bot
+WorkingDirectory=/opt/skyflip/bot
+EnvironmentFile=/etc/skyflip/bot.env
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node --enable-source-maps dist/main.js
+# The backend's login switch starts and stops this unit; if the bot crashes it comes back on its own.
+Restart=on-failure
+RestartSec=20
+LimitNOFILE=16384
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+ReadWritePaths=/var/lib/skyflip-bot
+
+[Install]
+WantedBy=multi-user.target

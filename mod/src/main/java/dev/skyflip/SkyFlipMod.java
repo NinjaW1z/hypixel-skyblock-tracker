@@ -51,6 +51,10 @@ public final class SkyFlipMod implements ClientModInitializer {
     private KeyBinding openGui;
     /** Latest server-side settings (thresholds, filters) as sent by the backend. */
     private volatile JsonObject serverSettings;
+    /** Last `bot` status object from the backend (switches, bridge, service). */
+    private volatile JsonObject botStatus;
+    private long lastBotLogTs = 0;
+    JsonObject botStatus() { return botStatus; }
 
     FlipConfig config() { return config; }
     FeedClient feed() { return feed; }
@@ -174,6 +178,20 @@ public final class SkyFlipMod implements ClientModInitializer {
         root.then(ClientCommandManager.literal("profit")
             .executes(ctx -> { requestProfit(7); return 1; })
             .then(ClientCommandManager.argument("days", IntegerArgumentType.integer(1, 90)).executes(ctx -> { requestProfit(IntegerArgumentType.getInteger(ctx, "days")); return 1; })));
+
+        // auto-flipper: two switches, both server-side and off by default
+        root.then(ClientCommandManager.literal("autobuy")
+            .executes(ctx -> { requestBotStatus(); return 1; })
+            .then(ClientCommandManager.literal("on").executes(ctx -> { botControl("autobuy-on"); return 1; }))
+            .then(ClientCommandManager.literal("off").executes(ctx -> { botControl("autobuy-off"); return 1; })));
+        root.then(ClientCommandManager.literal("bot")
+            .executes(ctx -> { requestBotStatus(); return 1; })
+            .then(ClientCommandManager.literal("status").executes(ctx -> { requestBotStatus(); return 1; }))
+            .then(ClientCommandManager.literal("on").executes(ctx -> { botControl("login-on"); return 1; }))
+            .then(ClientCommandManager.literal("off").executes(ctx -> { botControl("login-off"); return 1; }))
+            .then(ClientCommandManager.literal("inventory").executes(ctx -> { botControl("inventory"); return 1; }))
+            .then(ClientCommandManager.literal("run").then(ClientCommandManager.argument("command", StringArgumentType.greedyString())
+                .executes(ctx -> { botControl("execute", StringArgumentType.getString(ctx, "command")); return 1; }))));
         return root;
     }
 
@@ -234,6 +252,68 @@ public final class SkyFlipMod implements ClientModInitializer {
         return ClientCommandManager.literal(name).executes(ctx -> { action.run(); return 1; });
     }
 
+    void requestBotStatus() {
+        JsonObject m = new JsonObject(); m.addProperty("type", "bot"); feed.send(m);
+    }
+
+    void botControl(String action) { botControl(action, null); }
+    void botControl(String action, String text) {
+        JsonObject m = new JsonObject(); m.addProperty("type", "botControl"); m.addProperty("action", action);
+        if (text != null) m.addProperty("text", text);
+        feed.send(m);
+    }
+
+    /** One-line summary of both switches for chat and the GUI. */
+    String botSummary() {
+        JsonObject b = botStatus;
+        if (b == null) return "§7bot status unknown (not connected?)";
+        JsonObject ab = b.has("autobuy") && b.get("autobuy").isJsonObject() ? b.getAsJsonObject("autobuy") : null;
+        JsonObject svc = b.has("service") && b.get("service").isJsonObject() ? b.getAsJsonObject("service") : null;
+        JsonObject br = b.has("bridge") && b.get("bridge").isJsonObject() ? b.getAsJsonObject("bridge") : null;
+        boolean autobuy = ab != null && ab.has("enabled") && ab.get("enabled").getAsBoolean();
+        String login = svc == null ? "n/a" : (svc.get("desired").getAsString().equals("on") ? "§aON" : "§cOFF") + " §7(service " + svc.get("active").getAsString() + ")";
+        int bots = br != null && br.has("bots") ? br.getAsJsonArray("bots").size() : 0;
+        return "§7login " + login + " §7· auto-buy " + (autobuy ? "§aON" : "§cOFF") + " §7· bots connected §f" + bots;
+    }
+
+    private void renderBotStatus(JsonObject b) {
+        chat(botSummary());
+        if (!b.has("bridge") || !b.get("bridge").isJsonObject()) return;
+        JsonObject br = b.getAsJsonObject("bridge");
+        if (br.has("bots")) for (JsonElement e : br.getAsJsonArray("bots")) {
+            JsonObject x = e.getAsJsonObject();
+            String purse = x.has("purse") && !x.get("purse").isJsonNull() ? fmt(x.get("purse").getAsLong()) : "?";
+            String loc = x.has("location") && !x.get("location").isJsonNull() ? x.get("location").getAsString() : "?";
+            chat("§8- §f" + x.get("player").getAsString() + " §7purse §6" + purse + " §7at §f" + loc + " §7· flips sent §f" + x.get("flipsSent").getAsInt() + " §7· buys/h §f" + x.get("buysLastHour").getAsInt());
+        }
+        if (br.has("pending")) { int n = br.getAsJsonArray("pending").size(); if (n > 0) chat("§7" + n + " item" + (n == 1 ? "" : "s") + " waiting to be listed or sold"); }
+        if (br.has("log")) {
+            JsonArray log = br.getAsJsonArray("log");
+            for (int i = Math.max(0, log.size() - 5); i < log.size(); i++) chat("§8" + log.get(i).getAsJsonObject().get("text").getAsString());
+        }
+    }
+
+    /** Unsolicited bot pushes: show only notable new log lines (buys, sells, errors). */
+    private void noteBotEvents(JsonObject b) {
+        if (!config.notifySales || !b.has("bridge") || !b.get("bridge").isJsonObject()) return;
+        JsonObject br = b.getAsJsonObject("bridge");
+        if (!br.has("log")) return;
+        long newest = lastBotLogTs;
+        for (JsonElement e : br.getAsJsonArray("log")) {
+            JsonObject l = e.getAsJsonObject();
+            long ts = l.get("ts").getAsLong();
+            if (ts <= lastBotLogTs) continue;
+            newest = Math.max(newest, ts);
+            String text = l.get("text").getAsString();
+            String level = l.get("level").getAsString();
+            if (lastBotLogTs == 0) continue; // first snapshot: don't replay history
+            if (level.equals("error") || level.equals("warn") || text.contains("BOUGHT") || text.contains("SOLD") || text.contains("LISTED"))
+                chat((level.equals("error") ? "§c" : level.equals("warn") ? "§e" : "§b") + "bot: §7" + text);
+        }
+        if (lastBotLogTs == 0 && newest == 0) newest = 1;
+        lastBotLogTs = newest;
+    }
+
     void serverSet(String key, String value) {
         JsonObject m = new JsonObject();
         m.addProperty("type", "set"); m.addProperty("key", key); m.addProperty("value", value);
@@ -287,6 +367,7 @@ public final class SkyFlipMod implements ClientModInitializer {
     private void onServerMessage(JsonObject m) {
         MinecraftClient.getInstance().execute(() -> {
             String type = m.has("type") ? m.get("type").getAsString() : "";
+            if (type.equals("hello") && m.has("bot") && m.get("bot").isJsonObject()) botStatus = m.getAsJsonObject("bot");
             if ((type.equals("hello") || type.equals("settings")) && m.has("settings")) {
                 serverSettings = m.getAsJsonObject("settings");
                 if (MinecraftClient.getInstance().currentScreen instanceof SkyFlipScreen sc) sc.onServerSettings();
@@ -303,6 +384,13 @@ public final class SkyFlipMod implements ClientModInitializer {
                     for (JsonElement r : rules) chat("§8- §f" + r.toString());
                 }
                 case "bazaar" -> { if (m.has("requested")) renderBazaar(m.getAsJsonArray("flips")); }
+                case "bot" -> {
+                    if (!m.has("bot") || !m.get("bot").isJsonObject()) return;
+                    JsonObject b = m.getAsJsonObject("bot");
+                    botStatus = b;
+                    if (m.has("requested") && m.get("requested").getAsBoolean()) renderBotStatus(b); else noteBotEvents(b);
+                    if (MinecraftClient.getInstance().currentScreen instanceof SkyFlipScreen sc) sc.onBotStatus();
+                }
                 case "profit" -> renderProfit(m.getAsJsonObject("summary"));
                 case "purchase" -> {
                     if (!config.notifySales) return;
@@ -416,6 +504,7 @@ public final class SkyFlipMod implements ClientModInitializer {
     private int status() {
         chat((feed.connected ? "§aconnected" : "§cdisconnected") + " §7to §e" + config.url + (config.token.isEmpty() ? " §8(no token)" : ""));
         chat("§7flips " + onOff(config.enabled) + " §7· sound " + onOff(config.sound) + " §8(" + config.soundName + " " + Math.round(config.soundVolume * 100) + "%)" + " §7· risk ≤ §e" + config.maxRisk + " §7· hypixel-only " + onOff(config.hypixelOnly) + " §7· lore " + onOff(config.showLore));
+        chat("§7auto-flipper: " + botSummary());
         chat("§7keys: §f" + openLatest.getBoundKeyLocalizedText().getString() + " §7open latest · §f" + openBest.getBoundKeyLocalizedText().getString() + " §7open best · §f" + openGui.getBoundKeyLocalizedText().getString() + " §7settings GUI · §f/skyflip help §7for commands");
         return 1;
     }
@@ -426,6 +515,7 @@ public final class SkyFlipMod implements ClientModInitializer {
         chat("§7server: §fminprofit <n> · minpercent <n> · purse <n> · minvolume <n> · mode <sniper|median|all> · tier <0-4> · set <key> <value>");
         chat("§7filters: §fblacklist|whitelist add <item> [risk=HIGH] [minprofit=1m] [maxprice=50m] [minpercent=10] [kind=SNIPE] [rarity=X] [volume=2] · remove <item> · list");
         chat("§7data: §fbazaar [n] · profit [days]");
+        chat("§7auto-flipper: §fbot [status|on|off|inventory|run <cmd>] · autobuy [on|off] · set autobuyMinProfit/autobuyMinPercent/autobuyMaxPrice/autobuyRisk/autobuyReserve/autoSell/listHours/webhook/pacing/humanize <v>");
     }
 
     // ------------------------------------------------------------------ sounds

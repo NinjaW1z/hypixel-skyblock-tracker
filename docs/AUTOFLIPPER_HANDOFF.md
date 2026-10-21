@@ -179,14 +179,25 @@ run the TS BAF and build the panel/pacing on our side (right-hand column above).
 
 ## 8. Checklist
 
-- [ ] Re-create `Settings.autobuy`, `ModSocketBridge`, Mojang resolver, tests
-- [ ] Wire `/modsocket/<token>` upgrade in `FeedServer`, `publishFlip` → bridge in `main.ts`
-- [ ] Bot service control (`/api/bot/*`, sudoers, systemd unit), login switch in mod + web
-- [ ] Choose bot: verify frikadellen-baf-121 protocol + aarch64 build; else TS BAF
-- [ ] `deploy/install-bot.sh` + README section "Auto-flipper"
-- [ ] Website Bot tab (status, switches, purse, inventory, listings, log tail)
-- [ ] Mod GUI Auto-buy tab + `/skyflip autobuy`, `/skyflip bot` commands
-- [ ] Stealth pacing + humanization scheduler in the backend (off by default)
-- [ ] Bazaar orders to the bot (second phase)
-- [ ] Bed-flip `purchaseAt` tuning from live logs
-- [ ] Final write-up for the owner (section 7)
+- [x] Re-create `Settings.autobuy`, `ModSocketBridge`, Mojang resolver, tests
+      (`backend/src/flips/settings.ts`, `backend/src/server/modsocket.ts`, `backend/src/hypixel/mojang.ts`,
+      `backend/src/test/modsocket.test.ts`)
+- [x] Wire `/modsocket/<token>` upgrade in `FeedServer`, `publishFlip` → bridge in `main.ts`
+- [x] Bot service control (`/api/bot/*`, sudoers, systemd unit), login switch in mod + web
+      (`backend/src/bot/service.ts`, `deploy/skyflip-bot.service`, sudoers from `deploy/install-bot.sh`)
+- [x] Choose bot. frikadellen-baf-121 verified from source: `data` is a JSON string (double-encoding
+      tolerated), flip keys `itemName, startingBid, target, finder, profitPerc, purchaseAt (ISO/unix), uuid|id`,
+      dispatch types `flip, bazaarFlip, createAuction, getInventory, chatMessage, writeToChat, execute,
+      collectAuctions, countdown`. It ships no aarch64 binary (Rust nightly build on A1). Decision: the
+      bundled `bot/` (Node, aarch64-native, tested end-to-end against a mock Hypixel) speaks the same
+      protocol and is the default; the bridge accepts a BAF build unchanged if the owner prefers it.
+- [x] `deploy/install-bot.sh` + README section "Auto-flipper" (+ deploy/README.md walkthrough, bot/README.md)
+- [x] Website Bot tab (status, switches, purse, inventory, listings, log tail)
+- [x] Mod GUI Auto-buy tab + `/skyflip autobuy`, `/skyflip bot` commands (jar in `mod/release/`)
+- [x] Stealth pacing + humanization scheduler in the backend (off by default) (`backend/src/bot/pacing.ts`)
+- [x] Bazaar orders to the bot (second phase): `set bazaarOrders on` sends `bazaarFlip` in the Rust BAF
+      shape; the bundled bot ignores them (no bazaar GUI flow yet)
+- [ ] Bed-flip `purchaseAt` tuning from live logs: `autobuy.bedDelayMs` (default 20 s) is the knob; the bot
+      logs "clicked N times on the bed" and "not bought: … no buy button" to tune it. Needs a live account.
+- [x] Final write-up for the owner (section 7): delivered in the session's closing message; same steps in
+      deploy/README.md → Auto-flipper

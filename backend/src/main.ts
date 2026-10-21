@@ -17,6 +17,11 @@ import { EndedPoller } from './ingest/endedPoller.js';
 import { evaluateAuction, type ExternalPriceLookup } from './flips/detector.js';
 import { BazaarService } from './bazaar/bazaarService.js';
 import { FeedServer } from './server/server.js';
+import { ModSocketBridge } from './server/modsocket.js';
+import { MojangResolver } from './hypixel/mojang.js';
+import { BotService } from './bot/service.js';
+import { PacingScheduler } from './bot/pacing.js';
+import { DiscordWebhook } from './bot/webhook.js';
 import type { ItemData } from './nbt/decode.js';
 
 // Last line of defence: log and keep running. Every subsystem retries on its own, and the state
@@ -69,7 +74,15 @@ async function main(): Promise<void> {
   };
 
   const bazaar = new BazaarService(client);
-  const server = new FeedServer({ port: config.port, webDir, settings, tracker, bazaar, names, token, packsDir: resolve(join(here, '..', 'rules')) });
+  // Auto-buy: bots (BAF-protocol) connect to /modsocket/<token>; the login switch drives the systemd unit; pacing is off by default.
+  const webhook = new DiscordWebhook(() => settings.current.autobuy.webhookUrl);
+  const botService = new BotService(dataDir);
+  botService.start();
+  const pacing = new PacingScheduler(settings, botService, dataDir);
+  pacing.start();
+  const bridge = new ModSocketBridge({ token, settings, tracker, mojang: new MojangResolver(), store, dataDir, webhook: (t) => webhook.send(t) });
+  log.info(`auto-buy: purchase switch ${settings.current.autobuy.enabled ? 'ON' : 'off'} · login switch ${botService.status().desired} · bots connect to ws://<host>:${config.port}/modsocket/<token>${token ? '' : ' (set SKYFLIP_TOKEN or no bot can connect)'}`);
+  const server = new FeedServer({ port: config.port, webDir, settings, tracker, bazaar, names, token, packsDir: resolve(join(here, '..', 'rules')), bridge, botService, pacing });
   const auctions = new AuctionPoller(client, lowestBin);
   const ended = new EndedPoller(client, sales, store);
   ended.on('sale', (ev) => tracker.onSale(ev));
@@ -89,6 +102,7 @@ async function main(): Promise<void> {
       server.status.flipsTotal++;
       tracker.rememberFlip(flip);
       server.publishFlip(flip);
+      bridge.publishFlip(flip);
       store.saveFlip(flip);
       log.info(`FLIP ${flip.kind} ${flip.itemName} ${fmt(flip.price)} -> ${fmt(flip.target)} (+${fmt(flip.profit)}, ${(flip.profitPercent * 100).toFixed(0)}%) [${flip.risk}/${flip.priceSource}] ${flip.command} lag ${flip.latencyMs}ms`);
     }
@@ -111,7 +125,11 @@ async function main(): Promise<void> {
 
   auctions.on('error', (e) => log.warn('auction poller:', (e as Error).message ?? e));
   bazaar.on('error', (e: unknown) => log.warn('bazaar:', (e as Error).message ?? e));
-  bazaar.on('update', (flips: unknown[]) => log.debug(`bazaar: ${flips.length} flips`));
+  bazaar.on('update', (flips: unknown[]) => {
+    log.debug(`bazaar: ${flips.length} flips`);
+    const b = settings.current.bazaar;
+    bridge.publishBazaar(bazaar.top({ minProfitPerHour: b.minProfitPerHour, minProfitPercent: b.minProfitPercent, maxPrice: b.maxPrice || undefined, minVolumeWeek: b.minVolumeWeek, risk: b.maxRisk, limit: 3 }).map((x) => ({ ...x, name: names.name(x.productId) ?? undefined })));
+  });
 
   const shutdown = async () => {
     log.info('shutting down');
@@ -119,6 +137,9 @@ async function main(): Promise<void> {
     ended.stop();
     bazaar.stop();
     coflnet?.stop();
+    bridge.close();
+    botService.stop();
+    pacing.stop();
     await client.close().catch(() => {});
     store.close();
     process.exit(0);

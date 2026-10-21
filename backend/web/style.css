@@ -99,3 +99,15 @@ button.pack { background:var(--panel2); color:var(--fg); border:1px solid var(--
   th:nth-child(8),td:nth-child(8),th:nth-child(10),td:nth-child(10) { display:none; }
   td.item { max-width:220px; }
 }
+
+/* bot tab */
+.switches { display:flex; gap:12px; flex-wrap:wrap; padding:8px 0 10px; }
+.switch { background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); padding:12px 16px; min-width:260px; flex:1; }
+.switch .k { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.4px; margin-bottom:6px; }
+.switch .v { display:flex; align-items:center; gap:8px; font-size:15px; }
+.switch .v b.on { color:#4ade80; } .switch .v b.off { color:#f87171; }
+.switch .sub { color:var(--muted); font-size:12px; margin-top:6px; }
+#botLog div.warn { color:#fbbf24; } #botLog div.error { color:#f87171; }
+#botCmd { min-width:320px; }
+.pair { display:inline-flex; gap:6px; } .pair input { width:90px; }
+h3 { font-size:14px; margin:14px 0 6px; color:var(--muted); text-transform:uppercase; letter-spacing:.4px; }

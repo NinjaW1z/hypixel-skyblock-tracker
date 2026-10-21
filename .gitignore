@@ -6,3 +6,5 @@ dist/
 build/
 run/
 .env
+bot/config.json
+bot/data/

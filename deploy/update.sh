@@ -11,10 +11,21 @@ cd backend
 npm ci --no-audit --no-fund --loglevel=error
 npm run build
 cd ..
+if [ -f /etc/systemd/system/skyflip-bot.service ]; then
+  echo "[skyflip] rebuilding the bot"
+  ( cd bot && npm ci --no-audit --no-fund --loglevel=error && npm run build )
+  if ! cmp -s deploy/skyflip-bot.service /etc/systemd/system/skyflip-bot.service; then
+    echo "[skyflip] bot unit file changed upstream; re-run deploy/install-bot.sh to apply it"
+  fi
+fi
 if [ -f deploy/skyflip.service ] && ! cmp -s deploy/skyflip.service /etc/systemd/system/skyflip.service; then
   echo "[skyflip] unit file changed upstream; re-run deploy/install.sh to apply it"
 fi
 systemctl restart skyflip
+if systemctl is-active skyflip-bot >/dev/null 2>&1; then
+  echo "[skyflip] restarting the running bot"
+  systemctl restart skyflip-bot
+fi
 sleep 1
 systemctl --no-pager --lines=5 status skyflip || true
 echo "[skyflip] done · follow logs with: journalctl -u skyflip -f"

@@ -121,3 +121,84 @@ The Always Free ARM shape (VM.Standard.A1.Flex, 1–4 OCPU, 6–24 GB) is more t
 backend uses roughly 300–500 MB of RAM with the decoded-item cache and well under one core on
 average, with a short burst each minute when the snapshot lands. Set `HTTP_CONNECTIONS` in the
 env file to 48–64 if you have 4 OCPUs; the default is fine for 1.
+
+
+## Auto-flipper
+
+Everything below runs on the same instance as the backend. Both switches start off; the bot
+account does not log in and nothing is bought until you turn them on. Automated purchasing is
+against Hypixel's rules: use an account you accept losing.
+
+### 1. Install
+
+```bash
+sudo /opt/skyflip/deploy/update.sh              # pulls this version, rebuilds, restarts the backend
+sudo bash /opt/skyflip/deploy/install-bot.sh    # bot user, /etc/skyflip/bot.env, unit (disabled), sudoers rule
+```
+
+The installer creates the `skyflip-bot` system user, builds `/opt/skyflip/bot`, writes
+`/etc/skyflip/bot.env` with `WEBSOCKET_URL=ws://127.0.0.1:3131/modsocket/<token>` (the token from
+`/etc/skyflip/skyflip.env`) and `BOT_MODE=dry`, copies `bot/config.example.json` to
+`/etc/skyflip/bot-config.json`, installs `skyflip-bot.service` **disabled and stopped**, and adds
+`/etc/sudoers.d/skyflip-bot` so the backend's `skyflip` user may run exactly
+`systemctl start skyflip-bot` and `systemctl stop skyflip-bot` (that is the login switch).
+
+### 2. Bot account
+
+```bash
+sudo nano /etc/skyflip/bot.env        # MC_ACCOUNT=<microsoft e-mail of the bot account>
+```
+
+First sign-in is interactive (Microsoft device code). Run the bot once in the foreground as its
+own user, follow the link it prints, enter the code with the bot account, wait for
+`logged in as <name>` and `in SkyBlock at …`, then Ctrl+C:
+
+```bash
+sudo -u skyflip-bot env $(sudo grep -v '^#' /etc/skyflip/bot.env | xargs) node /opt/skyflip/bot/dist/main.js
+```
+
+The token is cached in `/var/lib/skyflip-bot/auth`; the service never needs the browser again
+unless Microsoft invalidates it (the Bot tab and the journal then show the sign-in line again).
+
+### 3. The two switches
+
+- **Login** (bot service): website → Bot tab → *Login switch*, or `/skyflip bot on` / `off` in game,
+  or `curl -X POST -H "Authorization: Bearer <token>" http://127.0.0.1:3131/api/bot/start` (`/stop`).
+  The choice is remembered across backend restarts.
+- **Auto-buy** (forward flips): website → Bot tab → *Auto-buy switch*, or `/skyflip autobuy on` / `off`.
+
+Start with `BOT_MODE=dry` in `bot.env`: the bot opens every forwarded flip and logs
+`DRY RUN: would confirm …` without buying. When the log looks right, set `BOT_MODE=live`, then
+turn the login switch off and on again (the service re-reads the env file).
+
+### 4. Watching it
+
+- Bot: `sudo journalctl -u skyflip-bot -f` (every flip, click, claim, listing; `DEBUG=1` in
+  `bot.env` dumps each menu with its slot names).
+- Backend: `sudo journalctl -u skyflip -f | grep -E 'autobuy|FLIP'` (what was forwarded and
+  why things were skipped; `BOUGHT`/`SOLD` lines come from the ended-auction feed).
+- Website → **Bot** tab: both switches, pacing phase, connected bots with purse, location and
+  inventory, the sell queue (cost, target, listing price, attempts), and the bridge log. The
+  header shows `Auto-buy: ON · 1 bot` at a glance. Settings → Auto-buy and Pacing hold the
+  thresholds.
+- In game: `/skyflip` prints both switches; `/skyflip bot` prints bots, purse, queue and the last
+  log lines; buys/sells/errors are announced in chat when notifications are on.
+- Discord: paste a webhook into Settings → Auto-buy for buy/sell/connect messages.
+
+### 5. Leaving it running
+
+The unit restarts the bot on crashes; the login switch's state is persisted, so a reboot brings
+the bot back if it was on. For a more human-looking presence, turn on **Pacing** in Settings
+(sessions of 1–5 h, breaks of 0.5–3 h, 10 h/day by default) and optionally **Humanization**
+(2–10 min breaks every 45–120 min). Both are off by default.
+
+Useful commands:
+
+```bash
+sudo systemctl status skyflip-bot          # is it running (the switch, not the owner's wish)
+sudo cat /var/lib/skyflip/bot-switch.json  # the owner's wish
+sudo /opt/skyflip/deploy/update.sh         # update everything (rebuilds the bot too)
+```
+
+Do not open any extra ports: the bot talks to the backend over localhost and the website is the
+only thing exposed.
