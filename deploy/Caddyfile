@@ -1,0 +1,9 @@
+# Optional: HTTPS in front of SkyFlip when you own a domain.
+# Replace flips.example.com with a hostname whose DNS A/AAAA record points at this instance,
+# open TCP 80 and 443 in the Oracle Security List and the host firewall, then:
+#   sudo cp deploy/Caddyfile /etc/caddy/Caddyfile && sudo systemctl restart caddy
+# Afterwards the web UI is https://flips.example.com and the mod uses
+#   /skyflip url wss://flips.example.com/ws
+flips.example.com {
+    reverse_proxy 127.0.0.1:3131
+}

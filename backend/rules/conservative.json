@@ -1,0 +1,33 @@
+{
+  "name": "Conservative",
+  "description": "High-volume, low-risk flips with exact comparables. Smaller margins, far fewer bad flips. Good default while your sales history is young.",
+  "settings": {
+    "minProfit": 300000,
+    "minProfitPercent": 0.08,
+    "minSalesPerDay": 3,
+    "maxKeyTier": 1,
+    "maxRisk": "LOW",
+    "kinds": { "SNIPE": true, "MEDIAN": true },
+    "whitelistOnly": false
+  },
+  "blacklist": [
+    { "item": "NEW_YEAR_CAKE*", "note": "collector pricing, no reliable comparables" },
+    { "item": "PARTY_HAT*", "note": "collector pricing" },
+    { "item": "DYE_*", "note": "cosmetic, thin and manipulated markets" },
+    { "item": "PET_SKIN_*", "note": "cosmetic, thin markets" },
+    { "item": "RUNE_*", "note": "volatile" },
+    { "item": "ATTRIBUTE_SHARD", "note": "price depends entirely on attribute rolls" },
+    { "item": "CAKE_SOUL", "note": "unique items" },
+    { "item": "MIDAS_SWORD", "minProfitPercent": 0, "note": "price depends on coins paid; needs exact comparables" },
+    { "item": "MIDAS_STAFF", "note": "price depends on coins paid" },
+    { "item": "STARRED_MIDAS_STAFF", "note": "price depends on coins paid" },
+    { "item": "CRAB_HAT*", "note": "collector pricing" },
+    { "item": "GOLDEN_DRAGON_EGG", "note": "very thin market" },
+    { "kind": "SNIPE", "minSalesPerDay": 0, "risk": "MEDIUM", "note": "no medium/high-risk snipes" },
+    { "rarity": "SPECIAL", "note": "mostly unique cosmetics" },
+    { "rarity": "VERY_SPECIAL", "note": "mostly unique cosmetics" },
+    { "minPrice": 500000000, "note": "skip anything over 500m; one wrong read is too expensive" }
+  ],
+  "whitelist": [],
+  "bazaar": { "minProfitPerHour": 300000, "minProfitPercent": 0.02, "maxPrice": 0, "minVolumeWeek": 20000, "maxRisk": "LOW" }
+}

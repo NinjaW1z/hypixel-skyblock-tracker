@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "skyflip",
+  "version": "${version}",
+  "name": "SkyFlip",
+  "description": "Streams auction flips from your local SkyFlip server into chat with one-click /viewauction.",
+  "authors": ["ninjaw1z"],
+  "license": "MIT",
+  "environment": "client",
+  "entrypoints": {
+    "client": ["dev.skyflip.SkyFlipMod"]
+  },
+  "depends": {
+    "fabricloader": ">=0.16.0",
+    "fabric-api": "*",
+    "minecraft": "~1.21.1",
+    "java": ">=21"
+  }
+}
